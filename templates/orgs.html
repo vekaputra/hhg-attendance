@@ -1,5 +1,5 @@
 {{define "orgform"}}
-<form method="post" action="/orgs">
+<form class="fields" method="post" action="/orgs">
 <input type="hidden" name="id" value="{{if .ID}}{{.ID}}{{end}}">
 <label>Name <input name="name" value="{{.Name}}" required maxlength="100"></label>
 {{if .ID}}<input type="hidden" name="kind" value="{{.Kind}}">
@@ -8,37 +8,44 @@
 {{end}}<label>Grace (minutes) <input type="number" name="grace" value="{{.GraceMinutes}}" min="0" max="240" required></label>
 <label>Start <input type="time" name="start" value="{{.Start}}"></label>
 <label>End <input type="time" name="end" value="{{.End}}"></label>
-<fieldset><legend>Weekdays</legend>{{range .Days}}<label><input type="checkbox" name="weekdays" value="{{.N}}"{{if .On}} checked{{end}}> {{.Name}}</label>{{end}}</fieldset>
-<button type="submit">{{if .ID}}Save{{else}}Add organisation{{end}}</button>
+<fieldset><legend>Weekdays</legend><div class="days">{{range .Days}}<label><input type="checkbox" name="weekdays" value="{{.N}}"{{if .On}} checked{{end}}> {{.Name}}</label>{{end}}</div></fieldset>
+<button type="submit" class="primary">{{if .ID}}Save{{else}}Add organisation{{end}}</button>
 </form>
 {{end}}
 
 {{define "shiftform"}}
-<form method="post" action="/orgs/{{.OrgID}}/shifts">
+<form class="fields" method="post" action="/orgs/{{.OrgID}}/shifts">
 <input type="hidden" name="shift_id" value="{{if .ID}}{{.ID}}{{end}}">
 <label>Shift <input name="name" value="{{.Name}}" required maxlength="100"></label>
 <label>Start <input type="time" name="start" value="{{.Start}}" required></label>
 <label>End <input type="time" name="end" value="{{.End}}" required></label>
-<button type="submit">{{if .ID}}Save{{else}}Add shift{{end}}</button>
+<button type="submit" class="{{if .ID}}sm{{else}}primary{{end}}">{{if .ID}}Save{{else}}Add shift{{end}}</button>
 </form>
 {{end}}
+
+{{define "heading"}}Organisations{{end}}
 
 {{define "content"}}
 {{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
 {{end -}}
-<h2>Organisations</h2>
 <p class="note">Start, end and weekdays apply to fixed-hours organisations only; a roster organisation is scheduled onto its shifts.</p>
-{{range .Orgs}}<section class="fix org">
-<h3>{{.Name}}</h3>
+{{range .Orgs}}<section class="card">
+<div class="card-head"><h2>{{.Name}}</h2></div>
+<div class="card-body">
 {{template "orgform" .}}
-{{if eq .Kind "roster"}}<h4>Shifts</h4>
+{{if eq .Kind "roster"}}<h3>Shifts</h3>
+<div class="shifts">
 {{range .Shifts}}{{template "shiftform" .}}
 {{end}}{{template "shiftform" .NewShift}}
+</div>
 <p class="note">Editing a shift does not change days already rostered.</p>
-{{end}}</section>
+{{end}}</div>
+</section>
 {{end}}
-<section class="fix org">
-<h3>New organisation</h3>
+<section class="card">
+<div class="card-head"><h2>New organisation</h2></div>
+<div class="card-body">
 {{template "orgform" .New}}
+</div>
 </section>
 {{end}}

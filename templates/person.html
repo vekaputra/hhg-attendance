@@ -1,51 +1,62 @@
-{{define "content"}}
-{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
-{{end -}}
-<div class="bar">
-<form method="get" action="/person">
+{{define "heading"}}{{if .Emp.ID}}{{.Emp.Name}}{{else}}People{{end}}{{end}}
+
+{{define "sub"}}{{if .Emp.ID}}{{.Emp.ID}} · {{with .Row}}{{.Org.Name}} · {{end}}{{.Title}}{{end}}{{end}}
+
+{{define "tools"}}
+{{if .Employees}}<form method="get" action="/person">
 <label>Employee <select name="emp">{{range .Employees}}<option value="{{.ID}}"{{if eq .ID $.Emp.ID}} selected{{end}}>{{.ID}} {{.Name}}</option>{{end}}</select></label>
 <input type="hidden" name="month" value="{{.Month}}">
 <button type="submit">Show</button>
 </form>
-{{with .Row}}<span>{{.Org.Name}}</span>{{end}}
-{{if .Emp.ID}}<div class="pager"><a href="{{.Prev.URL}}">‹ {{.Prev.Label}}</a> <b>{{.Title}}</b> <a href="{{.Next.URL}}">{{.Next.Label}} ›</a></div>{{end}}
-</div>
-{{if not .Employees}}<p>No employees yet.</p>
-{{else if not .Row}}<p>{{.Emp.ID}} {{.Emp.Name}} was not active in {{.Title}}.</p>
+{{end}}{{if .Emp.ID}}<div class="pager"><a class="btn" href="{{.Prev.URL}}" aria-label="Go to {{.Prev.Label}}" title="{{.Prev.Label}}">‹</a><a class="btn" href="{{.Next.URL}}" aria-label="Go to {{.Next.Label}}" title="{{.Next.Label}}">›</a></div>{{end}}
+{{end}}
+
+{{define "content"}}
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{end -}}
+{{if not .Employees}}<section class="card"><div class="card-body"><p>No employees yet.</p></div></section>
+{{else if not .Row}}<section class="card"><div class="card-body"><p>{{.Emp.ID}} {{.Emp.Name}} was not active in {{.Title}}.</p></div></section>
 {{else}}{{with .Row}}
-<div class="tot">
-<div>Actual hours<b>{{hours .Actual}}</b></div>
-<div>Within shift<b>{{hours .InShift}}</b></div>
-<div>Days with hours<b>{{$.DaysWithHours}}</b></div>
-<div>Late<b>{{.Late}}</b></div>
-<div>Absent<b>{{.Absent}}</b></div>
-<div>Missing tap<b>{{.Flagged}}</b></div>
-</div>
-<table class="cal month person">
-<thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead>
+<dl class="kpis six">
+<div class="kpi"><dt>Actual hours</dt><dd class="value">{{hours .Actual}}</dd></div>
+<div class="kpi"><dt>Within shift</dt><dd class="value">{{hours .InShift}}</dd></div>
+<div class="kpi"><dt>Days with hours</dt><dd class="value">{{$.DaysWithHours}}</dd></div>
+<div class="kpi late"><dt>Late</dt><dd class="value">{{.Late}}</dd></div>
+<div class="kpi bad"><dt>Absent</dt><dd class="value">{{.Absent}}</dd></div>
+<div class="kpi"><dt>Missing tap</dt><dd class="value">{{.Flagged}}</dd></div>
+</dl>
+<section class="card">
+<div class="card-head"><h2>{{$.Title}}</h2><span class="hint">Hours: actual · within shift</span></div>
+<div class="scroll">
+<table class="month person">
+<thead><tr><th scope="col">Mon</th><th scope="col">Tue</th><th scope="col">Wed</th><th scope="col">Thu</th><th scope="col">Fri</th><th scope="col">Sat</th><th scope="col">Sun</th></tr></thead>
 <tbody>
 {{range $.Weeks}}<tr>
-{{range .}}{{if .}}<td data-status="{{.Status}}"><span class="num"><span class="wd">{{.Date.Format "Mon"}} </span>{{.Date.Day}}</span>
+{{range .}}{{if .}}<td><span class="num"><span class="wd">{{.Date.Format "Mon"}} </span>{{.Date.Day}}</span>
 {{with .Window}}<span class="shift">{{with .Shift}}shift {{.}} · {{end}}{{clock .Start}}–{{clock .End}}</span>{{end}}
-{{if not (and .In.IsZero .Out.IsZero)}}<span>{{if .In.IsZero}}?{{else}}{{clock .In}}{{end}} → {{if .Out.IsZero}}?{{else}}{{clock .Out}}{{end}}</span>{{end}}
-<span>{{if eq .Status "late"}}{{mins .LateBy}} late{{else}}{{.Status}}{{end}}</span>
-{{range .Flags}}<span class="flag">{{.}}</span>{{end}}
-{{if .HasHours}}<span><b>{{hours .Actual}}</b> / {{hours .InShift}}</span>{{end}}</td>
+{{if not (and .In.IsZero .Out.IsZero)}}<span class="times">{{if .In.IsZero}}?{{else}}{{clock .In}}{{end}} → {{if .Out.IsZero}}?{{else}}{{clock .Out}}{{end}}</span>{{end}}
+{{if .Status}}<span class="pill" data-status="{{.Status}}">{{if eq .Status "late"}}{{mins .LateBy}} late{{else}}{{.Status}}{{end}}</span>{{end}}
+{{range .Flags}}<span class="flag" data-flag="{{.}}">{{.}}</span>{{end}}
+{{if .HasHours}}<span class="hrs"><b>{{hours .Actual}}</b> · {{hours .InShift}}</span>{{end}}</td>
 {{else}}<td class="blank"></td>
 {{end}}{{end}}</tr>
 {{end}}</tbody>
 </table>
-<p class="note">Each worked day shows actual hours (bold) / hours within the shift. Days with a missing tap show no hours until they are corrected.</p>
-<section class="fix">
-<h2>Correct a day</h2>
-<form method="post" action="/corrections">
+</div>
+<p class="card-foot note">Each worked day shows actual hours (bold) · hours within the shift. Days with a missing tap show no hours until they are corrected.</p>
+</section>
+<section class="card">
+<div class="card-head"><h2>Correct a day</h2></div>
+<div class="card-body">
+<form class="fields" method="post" action="/corrections">
 <input type="hidden" name="emp" value="{{$.Emp.ID}}">
 <label>Day <input type="date" name="day" required></label>
 <label>Check-in <input type="time" name="in"></label>
 <label>Check-out <input type="time" name="out"></label>
-<button type="submit">Save</button>
+<button type="submit" class="primary">Save</button>
 </form>
 <p class="note">A time left empty keeps the current one; leave both empty to remove the correction. Times before 03:00 belong to the next morning.</p>
+</div>
 </section>
 {{end}}{{end}}
 {{end}}

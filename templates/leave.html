@@ -1,24 +1,32 @@
+{{define "heading"}}Leave{{end}}
+
 {{define "content"}}
 {{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
 {{end -}}
-<section class="fix">
-<h2>Add leave</h2>
-<form method="post" action="/leave">
+<section class="card">
+<div class="card-head"><h2>Add leave</h2></div>
+<div class="card-body">
+<form class="fields" method="post" action="/leave">
 <label>Employee <select name="emp">{{range .Employees}}<option value="{{.ID}}">{{.ID}} {{.Name}}</option>{{end}}</select></label>
 <label>From <input type="date" name="from" required></label>
 <label>To <input type="date" name="to" required></label>
-<button type="submit">Add</button>
+<button type="submit" class="primary">Add</button>
 </form>
+</div>
 </section>
-<h2>Leave</h2>
-{{if .Leaves}}<table class="data">
-<thead><tr><th>Employee</th><th>From</th><th>To</th><th></th></tr></thead>
+<section class="card">
+<div class="card-head"><h2>Leave</h2></div>
+{{if .Leaves}}<div class="scroll">
+<table class="data">
+<thead><tr><th scope="col" class="name">Employee</th><th scope="col">From</th><th scope="col">To</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
 <tbody>
-{{range .Leaves}}<tr><td>{{.EmployeeID}} {{.Name}}</td><td>{{.From}}</td><td>{{.To}}</td>
-<td><form method="post" action="/leave/{{.ID}}/delete"><button type="submit">Delete</button></form></td></tr>
+{{range .Leaves}}<tr><th scope="row" class="name">{{.Name}}<small>{{.EmployeeID}}</small></th><td>{{.From}}</td><td>{{.To}}</td>
+<td><form method="post" action="/leave/{{.ID}}/delete"><button type="submit" class="sm danger">Delete</button></form></td></tr>
 {{end}}</tbody>
 </table>
-{{else}}<p>No leave booked.</p>
+</div>
+{{else}}<div class="card-body"><p>No leave booked.</p></div>
 {{end}}
-<p class="note">Showing leave from 90 days ago to a year ahead.</p>
+<p class="card-foot note">Showing leave from 90 days ago to a year ahead.</p>
+</section>
 {{end}}

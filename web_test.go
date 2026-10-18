@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -136,7 +139,7 @@ func TestCalendarViews(t *testing.T) {
 
 	week := get(fmt.Sprintf("org=%d&view=week&at=2026-10-07", office.ID))
 	wantAll(t, week, ">Mon 5<", ">Tue 6<", ">Wed 7<", ">Thu 8<", ">Fri 9<", ">Sat 10<", ">Sun 11<",
-		"/person?emp=HHG0002&amp;month=2026-10", "8h48m / 8h48m")
+		"/person?emp=HHG0002&amp;month=2026-10", "8h48m · 8h48m")
 
 	week = get(fmt.Sprintf("org=%d&view=week&at=2026-09-30", office.ID))
 	wantAll(t, week, ">Mon 28<", ">Sun 4<")
@@ -168,6 +171,10 @@ func TestCalendarNavigation(t *testing.T) {
 				t.Errorf("%s lacks link %q", query, s)
 			}
 		}
+		// Today (the clock is 2026-10-12) keeps the view and organisation.
+		if !regexp.MustCompile(`href="[^"]*at=2026-10-12[^"]*">Today<`).MatchString(body) {
+			t.Errorf("%s lacks a Today link to at=2026-10-12", query)
+		}
 	}
 }
 
@@ -189,20 +196,65 @@ func TestPublicRoutes(t *testing.T) {
 	}
 }
 
-// style.css only adds app rules on top of mvp.css, so it must come second to win ties.
-func TestMvpIsTheBaseStylesheet(t *testing.T) {
+// style.css is the app's only stylesheet: mvp.css is gone and no page links it.
+func TestStylesheet(t *testing.T) {
 	h, session, _, _ := webFixture(t)
-	w := getWithCookies(h, "/static/mvp.css")
-	if ct := w.Header().Get("Content-Type"); w.Code != 200 || !strings.HasPrefix(ct, "text/css") {
-		t.Errorf("GET /static/mvp.css without a session = %d %q, want 200 text/css", w.Code, ct)
+	if w := getWithCookies(h, "/static/mvp.css"); w.Code != 404 {
+		t.Errorf("GET /static/mvp.css = %d, want 404", w.Code)
 	}
 	for name, page := range map[string]string{
 		"login":    getWithCookies(h, "/login").Body.String(),
 		"calendar": getWithCookies(h, "/calendar", session).Body.String(),
 	} {
-		mvp, own := strings.Index(page, `href="/static/mvp.css"`), strings.Index(page, `href="/static/style.css"`)
-		if mvp < 0 || own < mvp {
-			t.Errorf("%s page links mvp.css at %d and style.css at %d, want mvp.css first", name, mvp, own)
+		wantAll(t, page, `href="/static/style.css"`)
+		if strings.Contains(page, "mvp.css") {
+			t.Errorf("%s page still links mvp.css", name)
+		}
+	}
+}
+
+var navCurrentRE = regexp.MustCompile(`<a href="([^"]+)"[^>]* aria-current="page"`)
+
+// Every page marks its own sidebar link as the current page, and no other link, including after a rejected POST.
+func TestActiveNav(t *testing.T) {
+	h, session, _, _ := webFixture(t)
+	check := func(from string, w *httptest.ResponseRecorder, want string) {
+		t.Helper()
+		got := navCurrentRE.FindAllStringSubmatch(w.Body.String(), -1)
+		if len(got) != 1 || got[0][1] != want {
+			t.Errorf("%s marks %q as the current page, want only %q", from, got, want)
+		}
+	}
+	for _, path := range []string{"/calendar", "/person", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
+		check("GET "+path, getWithCookies(h, path, session), path)
+	}
+	check("rejected POST /corrections", postCorrection(h, session, "NOPE", "2026-10-07", "", "20:00"), "/person")
+}
+
+var summaryRE = regexp.MustCompile(`<dt>([^<]+)</dt>\s*<dd class="value">(\d+)</dd>`)
+
+// The cards count the days shown, over everyone in the organisation. The clock is Monday 2026-10-12, so the week
+// of 10-05 is over: Budi is late on Monday and absent Tuesday to Friday, Dewi is absent all five days, and Gita is
+// late on 10-05 and on time on 10-07 but missing her check-out. The month also holds Gita's on-time shift on 10-04.
+func TestCalendarSummary(t *testing.T) {
+	h, session, office, cafe := webFixture(t)
+	for _, c := range []struct {
+		name  string
+		org   Org
+		query string
+		want  map[string]int
+	}{
+		{"office week", office, "view=week&at=2026-10-07", map[string]int{"On time": 0, "Late": 1, "Absent": 9, "Missing tap": 0}},
+		{"cafe week", cafe, "view=week&at=2026-10-07", map[string]int{"On time": 1, "Late": 1, "Absent": 0, "Missing tap": 1}},
+		{"cafe month", cafe, "view=month&at=2026-10-05", map[string]int{"On time": 2, "Late": 1, "Absent": 0, "Missing tap": 1}},
+	} {
+		page := getWithCookies(h, fmt.Sprintf("/calendar?org=%d&%s", c.org.ID, c.query), session).Body.String()
+		got := map[string]int{}
+		for _, m := range summaryRE.FindAllStringSubmatch(page, -1) {
+			got[m[1]], _ = strconv.Atoi(m[2])
+		}
+		if !maps.Equal(got, c.want) {
+			t.Errorf("%s: summary cards = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

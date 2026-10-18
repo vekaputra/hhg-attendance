@@ -1,21 +1,30 @@
+{{define "heading"}}Holidays{{end}}
+
 {{define "content"}}
 {{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
 {{end -}}
-<section class="fix">
-<h2>Add holiday</h2>
-<form method="post" action="/holidays">
+<section class="card">
+<div class="card-head"><h2>Add holiday</h2></div>
+<div class="card-body">
+<form class="fields" method="post" action="/holidays">
 <label>Day <input type="date" name="day" required></label>
-<button type="submit">Add</button>
+<button type="submit" class="primary">Add</button>
 </form>
+</div>
 </section>
-<h2>Holidays</h2>
-{{if .Days}}<table class="data">
+<section class="card">
+<div class="card-head"><h2>Holidays</h2></div>
+{{if .Days}}<div class="scroll">
+<table class="data">
+<thead><tr><th scope="col" class="name">Day</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
 <tbody>
-{{range .Days}}<tr><td>{{.}}</td>
-<td><form method="post" action="/holidays/{{.}}/delete"><button type="submit">Delete</button></form></td></tr>
+{{range .Days}}<tr><th scope="row" class="name">{{.}}</th>
+<td><form method="post" action="/holidays/{{.}}/delete"><button type="submit" class="sm danger">Delete</button></form></td></tr>
 {{end}}</tbody>
 </table>
-{{else}}<p>No holidays.</p>
+</div>
+{{else}}<div class="card-body"><p>No holidays.</p></div>
 {{end}}
-<p class="note">Showing last year and next year.</p>
+<p class="card-foot note">Showing last year and next year.</p>
+</section>
 {{end}}

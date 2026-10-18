@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -55,7 +57,7 @@ func mins(d time.Duration) string { return fmt.Sprintf("%dm", int((d+time.Minute
 const monthFmt = "2006-01"
 
 // server holds what every handler needs. tmpl has one set per page, each with the layout,
-// because pages all define "content"; login.html stands alone.
+// because pages all define "content", "heading" and optionally "sub" and "tools"; login.html stands alone.
 type server struct {
 	st   *Store
 	loc  *time.Location
@@ -80,7 +82,10 @@ func parseTemplates() map[string]*template.Template {
 		case "login.html":
 			set = set[1:]
 		}
-		tmpl[name] = template.Must(template.New(name).Funcs(funcs).ParseFS(templateFS, set...))
+		// The layout marks the sidebar link whose name is the page being rendered, even when a POST re-renders it.
+		pageFuncs := maps.Clone(funcs)
+		pageFuncs["nav"] = func() string { return strings.TrimSuffix(name, ".html") }
+		tmpl[name] = template.Must(template.New(name).Funcs(pageFuncs).ParseFS(templateFS, set...))
 	}
 	return tmpl
 }
@@ -153,14 +158,33 @@ type entry struct {
 	Result
 }
 
+// daySummary counts the days a calendar shows, over everyone in the organisation.
+type daySummary struct{ OnTime, Late, Absent, MissingTap int }
+
+func summarize(rows []Row) (s daySummary) {
+	for _, row := range rows {
+		s.Late += row.Late
+		s.Absent += row.Absent
+		s.MissingTap += row.Flagged
+		for _, d := range row.Days {
+			if d.Status == StatusOnTime {
+				s.OnTime++
+			}
+		}
+	}
+	return s
+}
+
 type calendarPage struct {
 	pageBase
-	View       string // "month" or "week"
-	Title      string
-	Month      string // at's month (YYYY-MM), for the person links
-	Tabs       []navLink
-	Views      []navLink
-	Prev, Next navLink
+	View              string // "month" or "week"
+	Org               string // the organisation shown
+	Title             string // the period shown
+	Month             string // at's month (YYYY-MM), for the person links
+	Tabs              []navLink
+	Views             []navLink
+	Prev, Next, Today navLink
+	Summary           daySummary
 
 	Weeks [][]monthCell // month view
 	Dates []time.Time   // week view column days
@@ -193,7 +217,8 @@ func (srv *server) calendar(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown view", http.StatusBadRequest)
 		return
 	}
-	day := attendanceDate(srv.now().In(srv.loc))
+	today := attendanceDate(srv.now().In(srv.loc))
+	day := today
 	if v := q.Get("at"); v != "" {
 		if day, err = time.ParseInLocation(dateFmt, v, srv.loc); err != nil {
 			http.Error(w, "bad date", http.StatusBadRequest)
@@ -205,11 +230,11 @@ func (srv *server) calendar(w http.ResponseWriter, r *http.Request) {
 		qs := url.Values{"org": {strconv.FormatInt(o.ID, 10)}, "view": {v}, "at": {at.Format(dateFmt)}}
 		return navLink{label, "/calendar?" + qs.Encode(), on}
 	}
-	page := calendarPage{View: view, Month: day.Format(monthFmt)}
+	page := calendarPage{View: view, Org: org.Name, Month: day.Format(monthFmt)}
 	for _, o := range orgs {
 		page.Tabs = append(page.Tabs, link(o.Name, o, view, day, o.ID == org.ID))
 	}
-	page.Views = []navLink{link("Month grid", org, "month", day, view == "month"), link("People × days", org, "week", day, view == "week")}
+	page.Views = []navLink{link("Month", org, "month", day, view == "month"), link("Week", org, "week", day, view == "week")}
 
 	var from, to, prev, next time.Time
 	var prevLabel, nextLabel string
@@ -229,13 +254,14 @@ func (srv *server) calendar(w http.ResponseWriter, r *http.Request) {
 		prevLabel, nextLabel = prev.Format("January"), next.Format("January")
 		page.Title = from.Format("January 2006")
 	}
-	page.Prev, page.Next = link(prevLabel, org, view, prev, false), link(nextLabel, org, view, next, false)
+	page.Prev, page.Next, page.Today = link(prevLabel, org, view, prev, false), link(nextLabel, org, view, next, false), link("Today", org, view, today, false)
 
 	rows, err := srv.st.Report(org.ID, "", from, to, srv.now())
 	if err != nil {
 		serverError(w, "report", err)
 		return
 	}
+	page.Summary = summarize(rows)
 	if view == "week" {
 		page.Rows = rows
 	} else {

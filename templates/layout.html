@@ -1,24 +1,47 @@
 <!doctype html>
-<html lang="en" color-mode="user">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {{/* htmx skips 4xx responses by default, which would hide the 400 and 401 pages. Its history cache would keep pages after logout. */ -}}
 <meta name="htmx-config" content='{"historyCacheSize":0,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"4..","swap":true,"error":true},{"code":"5..","swap":false,"error":true}]}'>
-<title>Attendance</title>
-<link rel="stylesheet" href="/static/mvp.css">
+<title>{{template "heading" .}} · HHG Attendance</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>
 <body hx-boost="true">
+<div class="app">
+<aside class="side" aria-label="Sidebar">
+<p class="brand"><span class="logo" aria-hidden="true">H</span>HHG Attendance</p>
+{{/* Inline, so it still works after a boosted navigation swaps the body. */ -}}
+<button type="button" class="menu" aria-expanded="false" aria-controls="side-menu" onclick="this.setAttribute('aria-expanded', this.closest('.side').classList.toggle('open'))">Menu</button>
+<div class="side-menu" id="side-menu">
+<nav aria-label="Main">
+<p class="group">Overview</p>
+<a href="/calendar"{{if eq nav "calendar"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Calendar</a>
+<a href="/person"{{if eq nav "person"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>People</a>
+<p class="group">Schedule</p>
+<a href="/roster"{{if eq nav "roster"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Roster</a>
+<a href="/leave"{{if eq nav "leave"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M5 12l4 4L19 6"/></svg>Leave</a>
+<a href="/holidays"{{if eq nav "holidays"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M12 3l2.5 5 5.5.8-4 3.9 1 5.5L12 15.6 7 18.2l1-5.5-4-3.9 5.5-.8z"/></svg>Holidays</a>
+<p class="group">Admin</p>
+<a href="/employees"{{if eq nav "employees"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c.8-3.5 3-5 6-5s5.2 1.5 6 5M15 20c.4-2 1.6-3.5 4-3.5"/></svg>Employees</a>
+<a href="/orgs"{{if eq nav "orgs"}} class="on" aria-current="page"{{end}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h3"/></svg>Organisations</a>
+</nav>
+<form class="me" method="post" action="/logout"><span>{{.User}}</span> <button type="submit">Log out</button></form>
+</div>
+</aside>
+<div class="main">
 <header class="top">
-<nav><a href="/calendar">Calendar</a><a href="/person">People</a><a href="/roster">Roster</a><a href="/employees">Employees</a><a href="/orgs">Organisations</a><a href="/leave">Leave</a><a href="/holidays">Holidays</a></nav>
-<form method="post" action="/logout"><span>{{.User}}</span> <button type="submit">Log out</button></form>
+<div><h1>{{template "heading" .}}</h1><p class="sub">{{block "sub" .}}{{end}}</p></div>
+<div class="tools">{{block "tools" .}}{{end}}</div>
 </header>
-{{range .Warnings}}<p class="warn" role="alert">{{.}}</p>
+<main class="content">
+{{range .Warnings}}<p class="alert" role="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><span>{{.}}</span></p>
 {{end -}}
-<main>
 {{template "content" .}}
 </main>
+</div>
+</div>
 </body>
 </html>
