@@ -36,6 +36,8 @@ main > form { max-width: var(--width-card-medium); }
 .seg a { padding: 3px 10px; border: 1px solid var(--color-link); color: var(--color-link); text-decoration: none; }
 .seg a.on { background: var(--color-link); color: var(--color-bg); }
 .pager a { text-decoration: none; }
+/* links to fixed places stay link-coloured, not mvp's visited purple */
+:is(.top, .pager, .name) a:visited { color: var(--color-link); }
 
 /* calendar tables: mvp makes tables shrink-wrapped, nowrap, centred, zebra-striped, scrolling inline-blocks.
    overflow stays visible so the sticky column scrolls with .scroll, not the table. */
@@ -62,7 +64,7 @@ main > form { max-width: var(--width-card-medium); }
 .tot div { border: 1px solid var(--color-bg-secondary); border-radius: var(--border-radius); padding: 6px 10px; font-size: 12px; }
 .tot b { display: block; font-size: 16px; }
 .person td > span { display: block; }
-.note { color: var(--color-text-secondary); font-size: 12px; }
+.note { color: var(--color-text); opacity: .65; font-size: 12px; }
 
 /* data entry pages: mvp makes every <section> a centred flex row */
 .fix { display: block; }
@@ -81,6 +83,8 @@ main > form { max-width: var(--width-card-medium); }
 [data-status="leave"], [data-status="holiday"] { background: var(--ok-bg); color: var(--ok-fg); }
 [data-status="off"] { background: var(--color-bg-secondary); }
 [data-status="on time"] { color: var(--ok-fg); }
+/* mvp greys <small> to --color-text-secondary, which is too faint on status backgrounds */
+[data-status] small { color: inherit; }
 
 @media (max-width: 640px) {
   /* month grid: just the days that have entries, as a list */
