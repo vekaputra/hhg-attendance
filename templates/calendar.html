@@ -1,0 +1,33 @@
+{{define "content"}}
+<div class="bar">
+<div class="seg">{{range .Tabs}}<a href="{{.URL}}"{{if .On}} class="on" aria-current="page"{{end}}>{{.Label}}</a>{{end}}</div>
+<div class="seg">{{range .Views}}<a href="{{.URL}}"{{if .On}} class="on" aria-current="page"{{end}}>{{.Label}}</a>{{end}}</div>
+<div class="pager"><a href="{{.Prev.URL}}">‹ {{.Prev.Label}}</a> <b>{{.Title}}</b> <a href="{{.Next.URL}}">{{.Next.Label}} ›</a></div>
+</div>
+{{if eq .View "month"}}
+<table class="cal month">
+<thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead>
+<tbody>
+{{range .Weeks}}<tr>
+{{range .}}{{if .Date.IsZero}}<td class="blank"></td>
+{{else}}<td{{if not .Entries}} class="quiet"{{end}}><span class="num"><span class="wd">{{.Date.Format "Mon"}} </span>{{.Date.Day}}</span>
+{{range .Entries}}<span class="chip" data-status="{{.Status}}"><a href="/person?emp={{.Employee.ID}}&amp;month={{$.Month}}">{{.Employee.ID}} {{.Employee.Name}}</a>{{with .Window}}{{with .Shift}} · shift {{.}}{{end}}{{end}}{{if eq .Status "late"}} · {{mins .LateBy}} late{{else if eq .Status "absent"}} · absent{{end}}{{range .Flags}} · {{.}}{{end}}</span>
+{{end}}</td>
+{{end}}{{end}}</tr>
+{{end}}</tbody>
+</table>
+{{else}}
+<div class="scroll">
+<table class="cal week">
+<thead><tr><th class="name">Employee</th>{{range .Dates}}<th>{{.Format "Mon 2"}}</th>{{end}}<th>Total</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr>
+<th scope="row" class="name"><a href="/person?emp={{.Employee.ID}}&amp;month={{$.Month}}">{{.Employee.ID}} {{.Employee.Name}}</a></th>
+{{range .Days}}<td data-status="{{.Status}}">{{with .Window}}{{with .Shift}}<span class="shift">{{.}}</span> {{end}}{{end}}{{if eq .Status "late"}}{{mins .LateBy}} late{{else}}{{.Status}}{{end}}{{range .Flags}} <span class="flag">{{.}}</span>{{end}}{{if .HasHours}}<small>{{hours .Actual}} / {{hours .InShift}}</small>{{end}}</td>
+{{end}}<td class="total">{{hours .Actual}} / {{hours .InShift}}</td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
+{{end}}
+{{end}}
