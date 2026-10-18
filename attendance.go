@@ -62,3 +62,118 @@ func checkInOut(taps []time.Time, w *Window) (in, out time.Time) {
 		return time.Time{}, kept[0]
 	}
 }
+
+// Fix is a manager correction; a zero field keeps the tap-derived value.
+type Fix struct{ In, Out time.Time }
+
+// Day is everything known about one person's attendance day.
+// Window is nil when they aren't scheduled: weekend, off, holiday, leave or outside their active period.
+// Roster is true when their organisation is a roster type.
+type Day struct {
+	Date                   time.Time
+	Window                 *Window
+	Leave, Holiday, Roster bool
+	Taps                   []time.Time
+	Fix                    *Fix
+}
+
+type Status string
+
+const (
+	StatusPending Status = ""
+	StatusOff     Status = "off"
+	StatusOnTime  Status = "on time"
+	StatusLate    Status = "late"
+	StatusAbsent  Status = "absent"
+	StatusLeave   Status = "leave"
+	StatusHoliday Status = "holiday"
+	StatusPresent Status = "present" // worked, but lateness can't be judged
+)
+
+type Flag string
+
+const (
+	FlagNoCheckIn   Flag = "no check-in"
+	FlagNoCheckOut  Flag = "no check-out"
+	FlagUnrostered  Flag = "unrostered"
+	FlagManagerEdit Flag = "manager edit"
+)
+
+// Result is the evaluated day. Actual and InShift are meaningful only when HasHours.
+type Result struct {
+	Date     time.Time
+	Window   *Window
+	In, Out  time.Time
+	Status   Status
+	LateBy   time.Duration
+	Flags    []Flag
+	Actual   time.Duration // out - in
+	InShift  time.Duration // overlap of [in, out] with the window
+	HasHours bool
+}
+
+// evaluate applies the attendance rules to a day. A person is late once they check in
+// after window start + grace; a day with no taps is absent only once now is past the window end.
+func evaluate(d Day, grace time.Duration, now time.Time) Result {
+	r := Result{Date: d.Date, Window: d.Window}
+	r.In, r.Out = checkInOut(d.Taps, d.Window)
+	if d.Fix != nil {
+		if !d.Fix.In.IsZero() {
+			r.In = d.Fix.In
+		}
+		if !d.Fix.Out.IsZero() {
+			r.Out = d.Fix.Out
+		}
+	}
+	hasIn, hasOut := !r.In.IsZero(), !r.Out.IsZero()
+
+	switch {
+	case hasIn && !hasOut:
+		r.Flags = append(r.Flags, FlagNoCheckOut)
+	case hasOut && !hasIn:
+		r.Flags = append(r.Flags, FlagNoCheckIn)
+	}
+
+	switch {
+	case d.Leave:
+		r.Status = StatusLeave
+	case d.Holiday:
+		r.Status = StatusHoliday
+	case d.Window == nil:
+		r.Status = StatusOff
+		if d.Roster && (len(d.Taps) > 0 || d.Fix != nil) {
+			r.Flags = append(r.Flags, FlagUnrostered)
+		}
+	case !hasIn && !hasOut:
+		if now.After(d.Window.End) {
+			r.Status = StatusAbsent
+		}
+	case !hasIn:
+		r.Status = StatusPresent
+	case r.In.After(d.Window.Start.Add(grace)):
+		r.Status = StatusLate
+		r.LateBy = r.In.Sub(d.Window.Start)
+	default:
+		r.Status = StatusOnTime
+	}
+
+	if d.Fix != nil {
+		r.Flags = append(r.Flags, FlagManagerEdit)
+	}
+
+	if hasIn && hasOut {
+		r.HasHours = true
+		r.Actual = r.Out.Sub(r.In)
+		if w := d.Window; w != nil {
+			start, end := r.In, r.Out
+			if w.Start.After(start) {
+				start = w.Start
+			}
+			if w.End.Before(end) {
+				end = w.End
+			}
+			r.InShift = max(0, end.Sub(start))
+		}
+	}
+	return r
+}
