@@ -270,6 +270,7 @@ func monthWeeks(first time.Time, rows []Row) [][]monthCell {
 
 type personPage struct {
 	pageBase
+	Error         string // shown above the page when a correction was rejected
 	Employees     []Employee
 	Emp           Employee // zero when there are no employees
 	Month         string   // YYYY-MM
@@ -284,44 +285,21 @@ func personURL(empID string, month time.Time) string {
 	return "/person?" + url.Values{"emp": {empID}, "month": {month.Format(monthFmt)}}.Encode()
 }
 
-// person shows one employee's month: totals, each day, and a form to correct a day.
-// It defaults to the first employee and to the month of the current attendance day.
-func (srv *server) person(w http.ResponseWriter, r *http.Request) {
-	emps, err := srv.st.Employees(0)
-	if err != nil {
-		serverError(w, "employees", err)
-		return
-	}
-	q := r.URL.Query()
-	page := personPage{Employees: emps}
-	if v := q.Get("emp"); v != "" {
-		i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == v })
-		if i < 0 {
-			http.Error(w, "unknown employee", http.StatusBadRequest)
-			return
-		}
-		page.Emp = emps[i]
-	} else if len(emps) > 0 {
-		page.Emp = emps[0]
-	}
-	y, m, _ := attendanceDate(srv.now().In(srv.loc)).Date()
-	first := time.Date(y, m, 1, 0, 0, 0, 0, srv.loc)
-	if v := q.Get("month"); v != "" {
-		if first, err = time.ParseInLocation(monthFmt, v, srv.loc); err != nil {
-			http.Error(w, "bad month", http.StatusBadRequest)
-			return
-		}
-	}
-	page.Month, page.Title = first.Format(monthFmt), first.Format("January 2006")
+// monthOf returns midnight on the first of t's month, in t's location.
+func monthOf(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
+}
 
-	if page.Emp.ID != "" {
+// personData builds the page for emp's month (first is its first day); emp is zero when there are no employees.
+func (srv *server) personData(r *http.Request, emps []Employee, emp Employee, first time.Time) (personPage, error) {
+	page := personPage{Employees: emps, Emp: emp, Month: first.Format(monthFmt), Title: first.Format("January 2006")}
+	if emp.ID != "" {
 		prev, next := first.AddDate(0, -1, 0), first.AddDate(0, 1, 0)
-		page.Prev = navLink{Label: prev.Format("January"), URL: personURL(page.Emp.ID, prev)}
-		page.Next = navLink{Label: next.Format("January"), URL: personURL(page.Emp.ID, next)}
-		rows, err := srv.st.Report(0, page.Emp.ID, first, next.AddDate(0, 0, -1), srv.now())
+		page.Prev = navLink{Label: prev.Format("January"), URL: personURL(emp.ID, prev)}
+		page.Next = navLink{Label: next.Format("January"), URL: personURL(emp.ID, next)}
+		rows, err := srv.st.Report(0, emp.ID, first, next.AddDate(0, 0, -1), srv.now())
 		if err != nil {
-			serverError(w, "report", err)
-			return
+			return page, err
 		}
 		if len(rows) > 0 {
 			page.Row = &rows[0]
@@ -333,8 +311,41 @@ func (srv *server) person(w http.ResponseWriter, r *http.Request) {
 			page.Weeks = personWeeks(page.Row.Days)
 		}
 	}
-	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+	var err error
+	page.pageBase, err = srv.base(r)
+	return page, err
+}
+
+// person shows one employee's month: totals, each day, and a form to correct a day.
+// It defaults to the first employee and to the month of the current attendance day.
+func (srv *server) person(w http.ResponseWriter, r *http.Request) {
+	emps, err := srv.st.Employees(0)
+	if err != nil {
+		serverError(w, "employees", err)
+		return
+	}
+	q := r.URL.Query()
+	var emp Employee
+	if v := q.Get("emp"); v != "" {
+		i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == v })
+		if i < 0 {
+			http.Error(w, "unknown employee", http.StatusBadRequest)
+			return
+		}
+		emp = emps[i]
+	} else if len(emps) > 0 {
+		emp = emps[0]
+	}
+	first := monthOf(attendanceDate(srv.now().In(srv.loc)))
+	if v := q.Get("month"); v != "" {
+		if first, err = time.ParseInLocation(monthFmt, v, srv.loc); err != nil {
+			http.Error(w, "bad month", http.StatusBadRequest)
+			return
+		}
+	}
+	page, err := srv.personData(r, emps, emp, first)
+	if err != nil {
+		serverError(w, "person", err)
 		return
 	}
 	srv.render(w, http.StatusOK, "person.html", page)
@@ -370,7 +381,8 @@ func attendanceTime(day time.Time, v string) (time.Time, error) {
 }
 
 // correct saves a manager's fix to one day's check-in and/or check-out and goes back to that month.
-// A field left empty keeps the tap-derived time; with both empty the day's correction is removed.
+// A field left empty keeps the day's current value; with both empty the day's correction is removed.
+// Rejected input re-renders the person page, at the day's month, with the message.
 func (srv *server) correct(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	emps, err := srv.st.Employees(0)
@@ -379,45 +391,71 @@ func (srv *server) correct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PostFormValue("emp")
-	if !slices.ContainsFunc(emps, func(e Employee) bool { return e.ID == id }) {
-		http.Error(w, "unknown employee", http.StatusBadRequest)
+	var emp Employee // an unknown employee shows the first one
+	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == id })
+	if i >= 0 {
+		emp = emps[i]
+	} else if len(emps) > 0 {
+		emp = emps[0]
+	}
+	month := monthOf(attendanceDate(srv.now().In(srv.loc)))
+	reject := func(msg string) {
+		page, err := srv.personData(r, emps, emp, month)
+		if err != nil {
+			serverError(w, "person", err)
+			return
+		}
+		page.Error = msg
+		srv.render(w, http.StatusBadRequest, "person.html", page)
+	}
+
+	if i < 0 {
+		reject("unknown employee")
 		return
 	}
 	day, err := time.ParseInLocation(dateFmt, r.PostFormValue("day"), srv.loc)
 	if err != nil {
-		http.Error(w, "bad day", http.StatusBadRequest)
+		reject("bad day")
+		return
+	}
+	month = monthOf(day)
+	if ds := day.Format(dateFmt); ds < emp.ActiveFrom || (emp.ActiveUntil != "" && ds > emp.ActiveUntil) {
+		reject("employee was not active that day")
 		return
 	}
 	in, err := attendanceTime(day, r.PostFormValue("in"))
 	if err != nil {
-		http.Error(w, "bad check-in time", http.StatusBadRequest)
+		reject("bad check-in time")
 		return
 	}
 	out, err := attendanceTime(day, r.PostFormValue("out"))
 	if err != nil {
-		http.Error(w, "bad check-out time", http.StatusBadRequest)
+		reject("bad check-out time")
 		return
 	}
 
-	// Judge the result of the edit: a field left empty keeps the day's current value.
+	// The saved correction is the form over the existing one, so its in/out are what Report will show.
 	rows, err := srv.st.Report(0, id, day, day, srv.now())
 	if err != nil {
 		serverError(w, "report", err)
 		return
 	}
-	if len(rows) == 0 {
-		http.Error(w, "employee was not active that day", http.StatusBadRequest)
+	cur := rows[0].Days[0] // the active-period check above guarantees a row
+	if effIn, effOut := cmp.Or(in, cur.In), cmp.Or(out, cur.Out); !effIn.IsZero() && !effOut.IsZero() && !effOut.After(effIn) {
+		reject("check-out must be after check-in")
 		return
 	}
-	cur := rows[0].Days[0]
-	effIn, effOut := cmp.Or(in, cur.In), cmp.Or(out, cur.Out)
-	if !effIn.IsZero() && !effOut.IsZero() && !effOut.After(effIn) {
-		http.Error(w, "check-out must be after check-in", http.StatusBadRequest)
-		return
+	fix := Correction{EmployeeID: id, Day: day, By: currentUser(r), At: srv.now()}
+	if !in.IsZero() || !out.IsZero() {
+		fixes, err := srv.st.Corrections(id, day, day)
+		if err != nil {
+			serverError(w, "corrections", err)
+			return
+		}
+		old := fixes[day.Format(dateFmt)]
+		fix.In, fix.Out = cmp.Or(in, old.In), cmp.Or(out, old.Out)
 	}
-
-	err = srv.st.SaveCorrection(Correction{EmployeeID: id, Day: day, In: in, Out: out, By: currentUser(r), At: srv.now()})
-	if err != nil {
+	if err := srv.st.SaveCorrection(fix); err != nil {
 		serverError(w, "save correction", err)
 		return
 	}

@@ -1,4 +1,6 @@
 {{define "content"}}
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{end -}}
 <div class="bar">
 <form method="get" action="/person">
 <label>Employee <select name="emp">{{range .Employees}}<option value="{{.ID}}"{{if eq .ID $.Emp.ID}} selected{{end}}>{{.ID}} {{.Name}}</option>{{end}}</select></label>
@@ -43,7 +45,7 @@
 <label>Check-out <input type="time" name="out"></label>
 <button type="submit">Save</button>
 </form>
-<p class="note">A time left empty keeps the tapped one; leave both empty to remove the correction. Times before 03:00 belong to the next morning.</p>
+<p class="note">A time left empty keeps the current one; leave both empty to remove the correction. Times before 03:00 belong to the next morning.</p>
 </section>
 {{end}}{{end}}
 {{end}}

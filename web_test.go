@@ -62,7 +62,7 @@ func postForm(h http.Handler, path string, form url.Values, cookies ...*http.Coo
 }
 
 // webFixture serves a seeded store to a logged-in manager, with the clock at 2026-10-12 12:00.
-// Office: HHG0002 taps 08:42/17:30 on 10-05 (12m late), HHG0004 never taps.
+// Office: HHG0002 taps 08:42/17:30 on 10-05 (12m late), HHG0004 never taps and leaves after 10-31.
 // Cafe: HHG0012 taps 14:40 and 01:00 on shift 3 on 10-04, 11:08 and 20:00 on shift 2 on 10-05 (8m late),
 // and only 10:55 on shift 2 on 10-07 (no check-out).
 func webFixture(t *testing.T) (h http.Handler, session *http.Cookie, office, cafe Org) {
@@ -83,7 +83,7 @@ func webFixture(t *testing.T) (h http.Handler, session *http.Cookie, office, caf
 
 	for _, e := range []Employee{
 		{ID: "HHG0002", Name: "Budi", OrgID: office.ID},
-		{ID: "HHG0004", Name: "Dewi", OrgID: office.ID},
+		{ID: "HHG0004", Name: "Dewi", OrgID: office.ID, ActiveUntil: "2026-10-31"},
 		{ID: "HHG0012", Name: "Gita", OrgID: cafe.ID},
 	} {
 		e.ActiveFrom = "2026-10-01"
@@ -290,37 +290,69 @@ func TestPersonQuery(t *testing.T) {
 	}
 }
 
+func postCorrection(h http.Handler, session *http.Cookie, emp, day, in, out string) *httptest.ResponseRecorder {
+	return postForm(h, "/corrections", url.Values{"emp": {emp}, "day": {day}, "in": {in}, "out": {out}}, session)
+}
+
+func getPerson(h http.Handler, session *http.Cookie) string {
+	return getWithCookies(h, "/person?emp=HHG0012&month=2026-10", session).Body.String()
+}
+
 func TestCorrectionInput(t *testing.T) {
 	h, session, _, _ := webFixture(t)
-	post := func(emp, day, in, out string) *httptest.ResponseRecorder {
-		return postForm(h, "/corrections", url.Values{"emp": {emp}, "day": {day}, "in": {in}, "out": {out}}, session)
-	}
-	person := func() string { return getWithCookies(h, "/person?emp=HHG0012&month=2026-10", session).Body.String() }
 
-	// 10-07 has only a 10:55 tap, so a check-out must come after it; 10-04 is 14:40 to 01:00 the next day.
-	for name, c := range map[string][4]string{
-		"unknown employee":    {"NOPE", "2026-10-07", "", "20:00"},
-		"bad day":             {"HHG0012", "2026-13-07", "", "20:00"},
-		"bad check-in":        {"HHG0012", "2026-10-07", "9am", ""},
-		"bad check-out":       {"HHG0012", "2026-10-07", "", "24:00"},
-		"out before tap in":   {"HHG0012", "2026-10-07", "", "10:00"},
-		"out before given in": {"HHG0012", "2026-10-07", "21:00", "20:00"},
-		"in after tap out":    {"HHG0012", "2026-10-04", "02:00", ""}, // 02:00 is 10-05, after the 01:00 check-out
+	// Rejections re-render the person page with the message. 10-07 has only a 10:55 tap, so a check-out
+	// must come after it; 10-04 is 14:40 to 01:00 the next day; HHG0004 is active 10-01 to 10-31.
+	for _, c := range []struct{ name, emp, day, in, out, msg string }{
+		{"unknown employee", "NOPE", "2026-10-07", "", "20:00", "unknown employee"},
+		{"bad day", "HHG0012", "2026-13-07", "", "20:00", "bad day"},
+		{"bad check-in", "HHG0012", "2026-10-07", "9am", "", "bad check-in"},
+		{"bad check-out", "HHG0012", "2026-10-07", "", "24:00", "bad check-out"},
+		{"out before tap in", "HHG0012", "2026-10-07", "", "10:00", "check-out must be after check-in"},
+		{"out before given in", "HHG0012", "2026-10-07", "21:00", "20:00", "check-out must be after check-in"},
+		{"in after tap out", "HHG0012", "2026-10-04", "02:00", "", "check-out must be after check-in"}, // 02:00 is 10-05
+		{"before active from", "HHG0012", "2026-09-30", "", "20:00", "not active"},
+		{"after active until", "HHG0004", "2026-11-01", "09:00", "17:00", "not active"},
 	} {
-		if w := post(c[0], c[1], c[2], c[3]); w.Code != 400 {
-			t.Errorf("%s: POST /corrections = %d, want 400", name, w.Code)
+		w := postCorrection(h, session, c.emp, c.day, c.in, c.out)
+		if w.Code != 400 {
+			t.Errorf("%s: POST /corrections = %d, want 400", c.name, w.Code)
 		}
+		wantAll(t, w.Body.String(), `action="/logout"`, `role="alert"`, c.msg)
 	}
-	if strings.Contains(person(), "manager edit") {
+	if strings.Contains(getPerson(h, session), "manager edit") {
 		t.Error("a rejected correction was saved")
+	}
+	if w := postCorrection(h, session, "HHG0004", "2026-10-31", "09:00", "17:00"); w.Code != 303 {
+		t.Errorf("correction on the last active day = %d, want 303", w.Code)
 	}
 
 	// Before 03:00 is the next calendar day: 10:55 to 01:00 is 14h05m.
-	if w := post("HHG0012", "2026-10-07", "", "01:00"); w.Code != 303 || !strings.Contains(person(), "14h05m") {
+	if w := postCorrection(h, session, "HHG0012", "2026-10-07", "", "01:00"); w.Code != 303 || !strings.Contains(getPerson(h, session), "14h05m") {
 		t.Errorf("check-out 01:00 = %d, want 303 and 14h05m on the page", w.Code)
 	}
 	// Both empty removes the correction.
-	if w := post("HHG0012", "2026-10-07", "", ""); w.Code != 303 || strings.Contains(person(), "manager edit") {
+	if w := postCorrection(h, session, "HHG0012", "2026-10-07", "", ""); w.Code != 303 || strings.Contains(getPerson(h, session), "manager edit") {
 		t.Errorf("empty correction = %d, want 303 and no manager edit", w.Code)
 	}
+}
+
+// A field left empty keeps the day's current value, so editing one time never undoes the other.
+func TestCorrectionKeepsOtherField(t *testing.T) {
+	h, session, _, _ := webFixture(t)
+	post := func(in, out string) int { return postCorrection(h, session, "HHG0012", "2026-10-07", in, out).Code }
+
+	// 10-07 has only a 10:55 tap.
+	if code := post("09:00", ""); code != 303 {
+		t.Fatalf("check-in 09:00 = %d, want 303", code)
+	}
+	if code := post("", "10:00"); code != 303 {
+		t.Fatalf("check-out 10:00 = %d, want 303", code)
+	}
+	wantAll(t, getPerson(h, session), "09:00 → 10:00", "1h00m")
+
+	if code := post("", "08:30"); code != 400 {
+		t.Errorf("check-out 08:30 before the corrected check-in = %d, want 400", code)
+	}
+	wantAll(t, getPerson(h, session), "09:00 → 10:00")
 }
