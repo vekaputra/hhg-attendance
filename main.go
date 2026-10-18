@@ -4,8 +4,6 @@
 package main
 
 import (
-	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,14 +28,6 @@ var dbDriver = "sqlite"
 var dbDSN = "attendance.db"
 
 func main() {
-	f, err := os.OpenFile("ehome.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		slog.Error("open log file", "err", err)
-		os.Exit(1)
-	}
-	// slog's default logger writes through the log package, so this tees every log line to the file.
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
-
 	loc, err := time.LoadLocation(timezone)
 	if timezone == "" || err != nil {
 		slog.Error("set a valid business timezone in main.go", "timezone", timezone, "err", err)

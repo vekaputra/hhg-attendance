@@ -230,7 +230,7 @@ the key so that a counter reset after a reboot can't silently drop real taps.
     `http.CrossOriginProtection`).
   - No page except login is served without a session.
   - Accounts are created by the owner, for example from a command line.
-- **Logging:** keep the existing `ehome.log` file logging.
+- **Logging:** to stderr only (the owner dropped the `ehome.log` file); run under systemd so the journal keeps it.
 
 ## Left to the builder
 

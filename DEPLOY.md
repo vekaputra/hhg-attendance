@@ -62,7 +62,7 @@ rows into `leaves`, drop `leave`, and retry.
 ## Devices
 
 `allowedDeviceIDs` in `ehome.go` lists the Device IDs allowed to register. It holds only `gshhgfp`; **add the
-cafe device's ID** and rebuild, or it is rejected with 401 (see "register rejected" in `ehome.log`).
+cafe device's ID** and rebuild, or it is rejected with 401 (see "register rejected" in the server log).
 
 ## Users
 
@@ -92,7 +92,7 @@ The web app speaks plain HTTP, so put a proxy in front of it:
 
 ## Files and backups
 
-`ehome.log` is created in the working directory. With MySQL, back up the database:
+Logs go to stderr only (run it under systemd so the journal keeps them). With MySQL, back up the database:
 
     mysqldump --single-transaction -u hhg -p hhg > backup-$(date +%F).sql
 
