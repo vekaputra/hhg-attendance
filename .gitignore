@@ -3,3 +3,4 @@ ehome.log
 *.db-shm
 *.db-wal
 .superpowers/
+/hhg-attendance
