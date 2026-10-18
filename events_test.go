@@ -41,6 +41,7 @@ func TestEventsPage(t *testing.T) {
 		{DeviceID: "door2", SerialNo: "7", Major: "0x5", Minor: "0x15", Time: at("2026-10-18 09:00:00")},
 		{DeviceID: "door1", SerialNo: "3", Major: "0x1", Minor: "0x99", Time: at("2026-10-18 09:05:00")}, // unknown code
 		{DeviceID: "old", SerialNo: "1", Major: "0x5", Minor: "0x1", EmployeeID: "ZZZ9999", Time: at("2026-10-18 09:10:00")},
+		{DeviceID: "door1", SerialNo: "6", Major: "0x5", Minor: "0x6", EmployeeID: "HHG0002", Time: at("2026-10-18 09:20:00")},  // denied, by a known employee
 		{DeviceID: "door1", SerialNo: "4", Major: "0x5", Minor: "0x26", EmployeeID: "HHG0002", Time: at("2026-10-19 01:30:00")}, // 10-18's day
 		{DeviceID: "door1", SerialNo: "5", Major: "0x5", Minor: "0x27", Time: at("2026-10-19 03:00:00")},                        // 10-19's
 	} {
@@ -73,27 +74,40 @@ func TestEventsPage(t *testing.T) {
 	if strings.Contains(page, "emp=ZZZ9999") || strings.Contains(page, "didn&#39;t match") {
 		t.Error("page links an unknown employee, or shows an event of another day")
 	}
-	// Taps are the three with an employee; the unrecognised fingerprint failed; the door and the alarm are neither.
-	if got, want := counts(page), map[string]int{"Total events": 6, "Taps": 3, "Failed attempts": 1, "Other": 2}; !maps.Equal(got, want) {
-		t.Errorf("summary cards = %v, want %v", got, want)
+	// The cards are exclusive and sum to the total: accepted, failed, and everything else. The denied card of a
+	// known employee is a failure, and the door and the alarm are neither.
+	for _, c := range []struct {
+		query string
+		want  map[string]int
+	}{
+		{"", map[string]int{"Total events": 7, "Accepted": 3, "Failed attempts": 2, "Other": 2}},
+		{"day=2026-10-18&device=door1", map[string]int{"Total events": 5, "Accepted": 2, "Failed attempts": 2, "Other": 1}},
+		{"day=2026-10-18&device=door2", map[string]int{"Total events": 1, "Accepted": 0, "Failed attempts": 0, "Other": 1}},
+	} {
+		got := counts(get(c.query))
+		if !maps.Equal(got, c.want) || got["Accepted"]+got["Failed attempts"]+got["Other"] != got["Total events"] {
+			t.Errorf("GET /events?%s: summary cards = %v, want %v, summing to the total", c.query, got, c.want)
+		}
 	}
 
 	// Filtering by device keeps the day and the filter in the Today link.
 	page = get("day=2026-10-18&device=door2")
 	wantAll(t, page, "Door unlocked", `<option value="door2" selected>`, `href="/events?day=2026-10-18&amp;device=door2">Today<`)
-	if got, want := counts(page), map[string]int{"Total events": 1, "Taps": 0, "Failed attempts": 0, "Other": 1}; !maps.Equal(got, want) {
-		t.Errorf("door2 summary cards = %v, want %v", got, want)
-	}
 	if strings.Contains(page, "Fingerprint") {
 		t.Error("door2 page shows another device's events")
 	}
 	wantAll(t, get("device=old"), "Card accepted") // not an allowed device, but seen that day
 
+	// A well-formed device that is neither allowed nor seen just has no events, and stays selected.
+	wantAll(t, get("device=nope"), `<option value="nope" selected>`, "No events received this day.")
+
 	// The next day starts at 03:00, and a day with nothing says so.
 	wantAll(t, get("day=2026-10-19"), "Fingerprint didn&#39;t match", "03:00:00") // html/template escapes the apostrophe
 	wantAll(t, get("day=2026-10-20"), "No events received this day.")
 
-	for _, query := range []string{"day=2026-13-45", "day=2026-10-5", "device=nope", "day=2026-10-20&device=old"} {
+	wantAll(t, get("day=2026-10-20&device=old"), "No events received this day.")
+
+	for _, query := range []string{"day=2026-13-45", "day=2026-10-5", "device=a%20b", "device=%3Cx%3E", "device=" + strings.Repeat("a", 65)} {
 		if w := getWithCookies(h, "/events?"+query, session); w.Code != 400 {
 			t.Errorf("GET /events?%s = %d, want 400", query, w.Code)
 		}

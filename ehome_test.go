@@ -146,6 +146,36 @@ func TestHandleEHomeStoresEvents(t *testing.T) {
 	}
 }
 
+// An event with no employee follows the tap rules: a store error is not acked, so the device resends, and an
+// unreadable time is acked and dropped.
+func TestHandleEHomeEventFailures(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	unknown := strings.Replace(acsPkt, "<employeeNoString>HHG0001</employeeNoString>", "<employeeNoString></employeeNoString>", 1)
+
+	t.Run("store error", func(t *testing.T) {
+		st, registered := newTestStore(t), map[string]bool{}
+		handleEHome([]byte(registerPkt), device, registered, st)
+		if _, err := st.db.Exec(`DROP TABLE events`); err != nil {
+			t.Fatal(err)
+		}
+		if reply := handleEHome([]byte(unknown), device, registered, st); reply != nil {
+			t.Errorf("acked an event that was not stored: %s", reply)
+		}
+	})
+	t.Run("unreadable time", func(t *testing.T) {
+		st, registered := newTestStore(t), map[string]bool{}
+		handleEHome([]byte(registerPkt), device, registered, st)
+		bad := strings.Replace(unknown, "2026-10-18 10:42:03", "garbage", 1)
+		if got := replyStatus(t, handleEHome([]byte(bad), device, registered, st)); got != 200 {
+			t.Fatalf("status = %d, want 200", got)
+		}
+		if n := rowCount(t, st, "events"); n != 0 {
+			t.Errorf("stored %d events for an unparseable time", n)
+		}
+	})
+}
+
 func TestHandleEHomeRestart(t *testing.T) {
 	allowedDeviceIDs = []string{"admin"}
 	st := newTestStore(t)

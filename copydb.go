@@ -25,7 +25,7 @@ var copyTables = []struct{ name, cols string }{
 }
 
 // copyDB copies the SQLite database at srcPath into st, keeping IDs, all in one transaction. It refuses unless
-// st has no employees, taps, users or holidays, and replaces st's seeded orgs and shifts, and any device
+// st has no employees, taps, events, users or holidays, and replaces st's seeded orgs and shifts, and any device
 // contacts, with the source's.
 func copyDB(st *Store, srcPath string) error {
 	if _, err := os.Stat(srcPath); err != nil {
@@ -71,7 +71,7 @@ func copyDB(st *Store, srcPath string) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"employees", "taps", "users", "holidays"} {
+	for _, table := range []string{"employees", "taps", "events", "users", "holidays"} {
 		if err := tx.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			return err
 		}

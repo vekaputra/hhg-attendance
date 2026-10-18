@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -51,9 +52,12 @@ type eventRow struct {
 	SerialNo                           string
 }
 
-// eventSummary counts the events shown. Taps are those with an employee and Failed those with the "bad" tone,
-// so an event can be both; Other is neither.
-type eventSummary struct{ Total, Taps, Failed, Other int }
+// eventSummary counts the events shown by tone: Accepted is "ok", Failed is "bad" and Other is everything else,
+// so the three add up to Total. Whether the event has an employee does not matter: a denied card is a failure.
+type eventSummary struct{ Total, Accepted, Failed, Other int }
+
+// deviceIDRE is what a device ID in the filter may look like, unless the ID is allowed or sent an event that day.
+var deviceIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type eventsPage struct {
 	pageBase
@@ -94,18 +98,22 @@ func (srv *server) events(w http.ResponseWriter, r *http.Request) {
 	device := q.Get("device")
 	if device != "" {
 		if !slices.Contains(devices, device) {
-			http.Error(w, "unknown device", http.StatusBadRequest)
-			return
+			if !deviceIDRE.MatchString(device) {
+				http.Error(w, "bad device", http.StatusBadRequest)
+				return
+			}
+			devices = append(devices, device) // it sent nothing that day, but stays selectable
 		}
-		if events, err = srv.st.Events(from, from.AddDate(0, 0, 1), device); err != nil {
-			serverError(w, "events", err)
-			return
-		}
+		events = slices.DeleteFunc(events, func(e Event) bool { return e.DeviceID != device })
 	}
 	emps, err := srv.st.Employees(0)
 	if err != nil {
 		serverError(w, "employees", err)
 		return
+	}
+	byID := make(map[string]Employee, len(emps))
+	for _, emp := range emps {
+		byID[emp.ID] = emp
 	}
 
 	link := func(label string, d time.Time) navLink {
@@ -121,19 +129,18 @@ func (srv *server) events(w http.ResponseWriter, r *http.Request) {
 		label, tone := describeEvent(e.Major, e.Minor)
 		row := eventRow{Time: e.Time.Format("15:04:05"), DeviceID: e.DeviceID, Label: label, Tone: tone,
 			Codes: e.Major + " / " + e.Minor, EmployeeID: e.EmployeeID, SerialNo: e.SerialNo}
-		if i := slices.IndexFunc(emps, func(emp Employee) bool { return emp.ID == e.EmployeeID }); i >= 0 {
-			row.Name, row.PersonURL = emps[i].Name, personURL(e.EmployeeID, day)
+		if emp, ok := byID[e.EmployeeID]; ok {
+			row.Name, row.PersonURL = emp.Name, personURL(emp.ID, day)
 		}
 		page.Rows = append(page.Rows, row)
 
 		page.Summary.Total++
-		if e.EmployeeID != "" {
-			page.Summary.Taps++
-		}
-		if tone == "bad" {
+		switch tone {
+		case "ok":
+			page.Summary.Accepted++
+		case "bad":
 			page.Summary.Failed++
-		}
-		if e.EmployeeID == "" && tone != "bad" {
+		default:
 			page.Summary.Other++
 		}
 	}

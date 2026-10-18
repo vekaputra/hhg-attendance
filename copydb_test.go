@@ -110,7 +110,7 @@ func TestCopyDB(t *testing.T) {
 			if got := mustGet(to.Leaves(date("2026-10-01"), date("2026-10-31"))); !reflect.DeepEqual(got, wantLeaves) || got[0].ID != 2 {
 				t.Errorf("leaves = %+v, want %+v (ID 2 kept)", got, wantLeaves)
 			}
-			if got := allDay(to); len(wantEvents) != 2 || !reflect.DeepEqual(got, wantEvents) {
+			if got := allDay(to); !reflect.DeepEqual(got, wantEvents) {
 				t.Errorf("events = %+v, want %+v", got, wantEvents)
 			}
 			if got := report(to); !reflect.DeepEqual(got, wantReport) {
@@ -203,8 +203,8 @@ func TestCopyDBRefusesLeaveInBothTables(t *testing.T) {
 	}
 }
 
-// A target the app already ran on has device contacts, which the copy replaces; holidays are real data, so
-// a target holding any is refused.
+// A target the app already ran on has device contacts, which the copy replaces; holidays and events are real
+// data, so a target holding any is refused.
 func TestCopyDBTargetGuards(t *testing.T) {
 	src := t.TempDir() + "/src.db"
 	from, err := OpenStore("sqlite", src, testLoc)
@@ -226,6 +226,15 @@ func TestCopyDBTargetGuards(t *testing.T) {
 		}
 		if got, want := mustGet(to.DeviceContacts()), map[string]time.Time{"d1": at("2026-10-19 10:00:00")}; !reflect.DeepEqual(got, want) {
 			t.Errorf("contacts = %v, want %v", got, want)
+		}
+	})
+	t.Run("events refused", func(t *testing.T) {
+		to := newTestStoreIn(t, testLoc)
+		if err := to.InsertEvent(Event{DeviceID: "d1", SerialNo: "1", Major: "0x5", Minor: "0x31", Time: at("2026-10-18 09:00:00")}, at("2026-10-18 09:00:01")); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyDB(to, src); err == nil || !strings.Contains(err.Error(), "not empty") || !strings.Contains(err.Error(), "events") {
+			t.Errorf("copyDB error = %v, want a refusal naming the non-empty events", err)
 		}
 	})
 	t.Run("holidays refused", func(t *testing.T) {

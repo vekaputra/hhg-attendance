@@ -14,7 +14,7 @@
 {{define "content"}}
 <dl class="kpis">
 <div class="kpi"><dt>Total events</dt><dd class="value">{{.Summary.Total}}</dd><dd class="hint">received this day</dd></div>
-<div class="kpi"><dt>Taps</dt><dd class="value">{{.Summary.Taps}}</dd><dd class="hint">with an employee number</dd></div>
+<div class="kpi ok"><dt>Accepted</dt><dd class="value">{{.Summary.Accepted}}</dd><dd class="hint">card, fingerprint or face</dd></div>
 <div class="kpi bad"><dt>Failed attempts</dt><dd class="value">{{.Summary.Failed}}</dd><dd class="hint">denied or not recognised</dd></div>
 <div class="kpi"><dt>Other</dt><dd class="value">{{.Summary.Other}}</dd><dd class="hint">doors, alarms, menu</dd></div>
 </dl>
