@@ -1,0 +1,34 @@
+{{define "heading"}}Events{{end}}
+
+{{define "sub"}}{{.Title}} · attendance day runs 03:00 to 02:59{{end}}
+
+{{define "tools"}}
+<form method="get" action="/events">
+<label>Device <select name="device"><option value="">All devices</option>{{range .Devices}}<option value="{{.}}"{{if eq . $.Device}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+<input type="hidden" name="day" value="{{.Day}}">
+<button type="submit">Show</button>
+</form>
+<div class="pager"><a class="btn" href="{{.Prev.URL}}" aria-label="Go to {{.Prev.Label}}" title="{{.Prev.Label}}">‹</a><a class="btn" href="{{.Today.URL}}">Today</a><a class="btn" href="{{.Next.URL}}" aria-label="Go to {{.Next.Label}}" title="{{.Next.Label}}">›</a></div>
+{{end}}
+
+{{define "content"}}
+<dl class="kpis">
+<div class="kpi"><dt>Total events</dt><dd class="value">{{.Summary.Total}}</dd><dd class="hint">received this day</dd></div>
+<div class="kpi"><dt>Taps</dt><dd class="value">{{.Summary.Taps}}</dd><dd class="hint">with an employee number</dd></div>
+<div class="kpi bad"><dt>Failed attempts</dt><dd class="value">{{.Summary.Failed}}</dd><dd class="hint">denied or not recognised</dd></div>
+<div class="kpi"><dt>Other</dt><dd class="value">{{.Summary.Other}}</dd><dd class="hint">doors, alarms, menu</dd></div>
+</dl>
+<section class="card">
+<div class="card-head"><h2>Events</h2><span class="hint">Newest first</span></div>
+{{if .Rows}}<div class="scroll">
+<table>
+<thead><tr><th scope="col">Time</th><th scope="col">Device</th><th scope="col">Event</th><th scope="col">Employee</th><th scope="col">Serial no</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><td>{{.Time}}</td><td>{{.DeviceID}}</td><td><span class="pill" data-tone="{{.Tone}}">{{.Label}}</span> <span class="hint">{{.Codes}}</span></td><td>{{if .PersonURL}}<a href="{{.PersonURL}}">{{.EmployeeID}} {{.Name}}</a>{{else if .EmployeeID}}{{.EmployeeID}}{{else}}—{{end}}</td><td>{{.SerialNo}}</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+{{else}}<div class="card-body"><p>No events received this day.</p></div>
+{{end}}
+</section>
+{{end}}

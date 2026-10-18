@@ -57,6 +57,8 @@ func TestCopyDB(t *testing.T) {
 			for _, err := range []error{
 				from.InsertTap(Tap{DeviceID: "d1", SerialNo: "83", EmployeeID: "E1", Time: at("2026-10-19 06:02:00")}, at("2026-10-19 06:02:01")),
 				from.InsertTap(Tap{DeviceID: "d1", SerialNo: "84", EmployeeID: "E1", Time: at("2026-10-19 15:01:00")}, at("2026-10-19 15:01:01")),
+				from.InsertEvent(Event{DeviceID: "d1", SerialNo: "83", Major: "0x5", Minor: "0x26", EmployeeID: "E1", Time: at("2026-10-19 06:02:00")}, at("2026-10-19 06:02:01")),
+				from.InsertEvent(Event{DeviceID: "d1", SerialNo: "85", Major: "0x5", Minor: "0x31", Time: at("2026-10-19 06:03:00")}, at("2026-10-19 06:03:01")),
 				from.TouchDevice("d1", at("2026-10-19 15:05:00")),
 				from.SetRoster("E1", date("2026-10-19"), shifts[0].ID, "mgr", at("2026-10-18 09:00:00")),
 				from.SetRoster("E1", date("2026-10-20"), 0, "mgr", at("2026-10-18 09:00:00")),
@@ -81,6 +83,8 @@ func TestCopyDB(t *testing.T) {
 			report := func(s *Store) []Row {
 				return mustGet(s.Report(0, "", date("2026-10-19"), date("2026-10-25"), at("2026-10-26 12:00:00")))
 			}
+			allDay := func(s *Store) []Event { return mustGet(s.Events(date("2026-10-19"), date("2026-10-20"), "")) }
+			wantEvents := allDay(from)
 			wantOrgs, wantShifts := mustGet(from.Orgs()), shifts
 			wantReport, wantLeaves := report(from), mustGet(from.Leaves(date("2026-10-01"), date("2026-10-31")))
 			from.Close()
@@ -106,6 +110,9 @@ func TestCopyDB(t *testing.T) {
 			if got := mustGet(to.Leaves(date("2026-10-01"), date("2026-10-31"))); !reflect.DeepEqual(got, wantLeaves) || got[0].ID != 2 {
 				t.Errorf("leaves = %+v, want %+v (ID 2 kept)", got, wantLeaves)
 			}
+			if got := allDay(to); len(wantEvents) != 2 || !reflect.DeepEqual(got, wantEvents) {
+				t.Errorf("events = %+v, want %+v", got, wantEvents)
+			}
 			if got := report(to); !reflect.DeepEqual(got, wantReport) {
 				t.Errorf("report differs after copy:\n got %+v\nwant %+v", got, wantReport)
 			}
@@ -124,6 +131,29 @@ func TestCopyDB(t *testing.T) {
 				t.Errorf("refused copy changed taps: %d rows, want %d", got, wantCounts["taps"])
 			}
 		})
+	}
+}
+
+// A file from before the events table existed has none to copy, and still copies.
+func TestCopyDBWithoutEvents(t *testing.T) {
+	src := t.TempDir() + "/src.db"
+	from, err := OpenStore("sqlite", src, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustGet(from.SaveOrg(Org{Name: "Gym", Kind: "roster"}))
+	from.Close()
+	execOnFile(t, src, `DROP TABLE events`)
+
+	to := newTestStore(t)
+	if err := copyDB(to, src); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(mustGet(to.Orgs())); got != 3 {
+		t.Errorf("%d orgs after the copy, want the source's 3", got)
+	}
+	if got := rowCount(t, to, "events"); got != 0 {
+		t.Errorf("%d events copied from a source without the table", got)
 	}
 }
 

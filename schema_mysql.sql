@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS taps (
 	INDEX taps_employee_time (employee_id, device_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- Every access event the device sent, taps or not. major and minor are its hex strings, e.g. 0x5, and employee_id is empty when there is none.
+CREATE TABLE IF NOT EXISTS events (
+	device_id   VARCHAR(64) NOT NULL,
+	serial_no   VARCHAR(20) NOT NULL,
+	device_time VARCHAR(19) NOT NULL,
+	major       VARCHAR(8) NOT NULL,
+	minor       VARCHAR(8) NOT NULL,
+	employee_id VARCHAR(32) NOT NULL DEFAULT '',
+	received_at VARCHAR(19) NOT NULL,
+	PRIMARY KEY (device_id, serial_no, device_time),
+	INDEX events_time (device_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS devices (
 	device_id    VARCHAR(64) PRIMARY KEY,
 	last_contact VARCHAR(19) NOT NULL

@@ -92,7 +92,8 @@ The web app speaks plain HTTP, so put a proxy in front of it:
 
 ## Files and backups
 
-Logs go to stderr only (run it under systemd so the journal keeps them). With MySQL, back up the database:
+Logs go to stderr only (run it under systemd so the journal keeps them). Every access event the devices send is
+stored in the database and shown on the Events page. With MySQL, back up the database:
 
     mysqldump --single-transaction -u hhg -p hhg > backup-$(date +%F).sql
 

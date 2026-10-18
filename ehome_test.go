@@ -112,6 +112,40 @@ func TestHandleEHomeStoresTapOnce(t *testing.T) {
 	}
 }
 
+// Every ACS event is stored once, with or without an employee; only the ones with an employee are also taps.
+func TestHandleEHomeStoresEvents(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{}
+	// An unrecognised fingerprint: no employee number.
+	unknown := strings.NewReplacer("<employeeNoString>HHG0001</employeeNoString>", "<employeeNoString></employeeNoString>",
+		"0x26", "0x31", "<serialNo>83<", "<serialNo>84<", "10:42:03", "10:43:00").Replace(acsPkt)
+	keepalive := strings.Replace(acsPkt, "<Command>ACS</Command>", "<Command>KEEPALIVE</Command>", 1)
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	for _, pkt := range []string{acsPkt, unknown, keepalive, acsPkt, unknown} { // the last two are resends
+		if got := replyStatus(t, handleEHome([]byte(pkt), device, registered, st)); got != 200 {
+			t.Fatalf("status = %d, want 200", got)
+		}
+	}
+	day := time.Date(2026, 10, 18, 3, 0, 0, 0, time.UTC)
+	got, err := st.Events(day, day.AddDate(0, 0, 1), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Event{
+		{DeviceID: "admin", SerialNo: "84", Major: "0x5", Minor: "0x31", Time: time.Date(2026, 10, 18, 10, 43, 0, 0, time.UTC)},
+		{DeviceID: "admin", SerialNo: "83", Major: "0x5", Minor: "0x26", EmployeeID: "HHG0001", Time: time.Date(2026, 10, 18, 10, 42, 3, 0, time.UTC)},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+	if taps := tapsOn(t, st, "HHG0001"); len(taps) != 1 {
+		t.Errorf("taps = %v, want one", taps)
+	}
+}
+
 func TestHandleEHomeRestart(t *testing.T) {
 	allowedDeviceIDs = []string{"admin"}
 	st := newTestStore(t)

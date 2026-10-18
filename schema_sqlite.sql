@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS taps (
 );
 CREATE INDEX IF NOT EXISTS taps_employee_time ON taps (employee_id, device_time);
 
+-- Every access event the device sent, taps or not. major and minor are its hex strings, e.g. 0x5, and employee_id is empty when there is none.
+CREATE TABLE IF NOT EXISTS events (
+	device_id   TEXT NOT NULL,
+	serial_no   TEXT NOT NULL,
+	device_time TEXT NOT NULL,
+	major       TEXT NOT NULL,
+	minor       TEXT NOT NULL,
+	employee_id TEXT NOT NULL DEFAULT '',
+	received_at TEXT NOT NULL,
+	PRIMARY KEY (device_id, serial_no, device_time)
+);
+CREATE INDEX IF NOT EXISTS events_time ON events (device_time);
+
 CREATE TABLE IF NOT EXISTS devices (
 	device_id    TEXT PRIMARY KEY,
 	last_contact TEXT NOT NULL

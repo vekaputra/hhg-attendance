@@ -64,8 +64,8 @@ func listenEHome(addr string, st *Store) error {
 	}
 }
 
-// handleEHome logs one packet, records device contact and taps in st, and returns the reply to send, if any.
-// A nil reply for a request means the tap could not be stored, so the device resends it.
+// handleEHome logs one packet, records device contact, events and taps in st, and returns the reply to send, if any.
+// A nil reply for a request means the event or tap could not be stored, so the device resends it.
 // shortcut: senders are trusted by UDP source address, which anyone on the internet can spoof; the firewall allow-list of the devices' public IPs is what protects this.
 func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Store) []byte {
 	pkt = bytes.TrimRight(pkt, "\x00") // ACS events arrive NUL-padded to a fixed size
@@ -114,7 +114,7 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 		// 403 with Method REGISTER asks the device to register again (FreeEhome does this for keepalives).
 		return reply(m, 403, "Forbidden", "<Method>REGISTER</Method>", "")
 	case m.Command == "ACS":
-		// Unrecognised fingerprints, door, alarm and menu events carry no employee number; they're kept as a security trail.
+		// Every event is stored, whether or not it carries an employee number: unrecognised fingerprints, doors, alarms and menu logins are a security trail.
 		if p.EmployeeNo == "" {
 			slog.Info("event", "time", p.Time, "major", p.MajorType, "minor", p.MinorType, "deviceID", p.DeviceID)
 		} else {
@@ -129,13 +129,23 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 				"serialNo", p.SerialNo,
 				"deviceID", p.DeviceID,
 			)
-			at, err := time.ParseInLocation(stampFmt, p.Time, st.loc)
-			if err != nil {
-				// Resending wouldn't fix an unreadable time, so ack and drop it.
-				slog.Warn("tap time unreadable, not stored", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
-			} else if err := st.InsertTap(Tap{DeviceID: p.DeviceID, SerialNo: p.SerialNo, EmployeeID: p.EmployeeNo, Time: at}, now); err != nil {
+		}
+		at, err := time.ParseInLocation(stampFmt, p.Time, st.loc)
+		if err != nil {
+			// Resending wouldn't fix an unreadable time, so ack and drop it.
+			slog.Warn("event time unreadable, not stored", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
+			break
+		}
+		// A store error means no ack, so the device resends; a value too long for its column fails the same way on every resend, so that one is acked and dropped.
+		if err := st.InsertEvent(Event{DeviceID: p.DeviceID, SerialNo: p.SerialNo, Major: p.MajorType, Minor: p.MinorType, EmployeeID: p.EmployeeNo, Time: at}, now); err != nil {
+			slog.Error("store event failed", "time", p.Time, "major", p.MajorType, "minor", p.MinorType, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
+			if !isTooLong(err) {
+				return nil
+			}
+		}
+		if p.EmployeeNo != "" {
+			if err := st.InsertTap(Tap{DeviceID: p.DeviceID, SerialNo: p.SerialNo, EmployeeID: p.EmployeeNo, Time: at}, now); err != nil {
 				slog.Error("store tap failed", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
-				// A value too long for its column fails the same way on every resend, so ack and drop it.
 				if !isTooLong(err) {
 					return nil
 				}

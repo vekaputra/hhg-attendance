@@ -226,7 +226,7 @@ func TestActiveNav(t *testing.T) {
 			t.Errorf("%s marks %q as the current page, want only %q", from, got, want)
 		}
 	}
-	for _, path := range []string{"/calendar", "/person", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
+	for _, path := range []string{"/calendar", "/person", "/events", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
 		check("GET "+path, getWithCookies(h, path, session), path)
 	}
 	check("rejected POST /corrections", postCorrection(h, session, "NOPE", "2026-10-07", "", "20:00"), "/person")
@@ -298,7 +298,7 @@ func TestCalendarDefaultsToAttendanceDay(t *testing.T) {
 
 func TestUnauthenticatedRedirects(t *testing.T) {
 	h, _, _, _ := webFixture(t)
-	for _, c := range []struct{ method, path string }{{"POST", "/logout"}, {"GET", "/nope"}, {"GET", "/person"}, {"POST", "/corrections"}} {
+	for _, c := range []struct{ method, path string }{{"POST", "/logout"}, {"GET", "/nope"}, {"GET", "/person"}, {"GET", "/events"}, {"POST", "/corrections"}} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(c.method, c.path, nil))
 		if w.Code != 303 || w.Header().Get("Location") != "/login" {

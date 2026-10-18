@@ -15,6 +15,7 @@ var copyTables = []struct{ name, cols string }{
 	{"shifts", "id, org_id, name, start_time, end_time"},
 	{"employees", "id, name, org_id, active_from, active_until"},
 	{"taps", "device_id, serial_no, device_time, employee_id, received_at"},
+	{"events", "device_id, serial_no, device_time, major, minor, employee_id, received_at"},
 	{"devices", "device_id, last_contact"},
 	{"roster", "employee_id, day, shift_name, start_time, end_time, changed_by, changed_at"},
 	{"leaves", "id, employee_id, from_day, to_day"},
@@ -44,6 +45,11 @@ func copyDB(st *Store, srcPath string) error {
 		return fmt.Errorf("read %s: %w", srcPath, err)
 	}
 	hasLeave, err := hasTable(src, "leave")
+	if err != nil {
+		return fmt.Errorf("read %s: %w", srcPath, err)
+	}
+	// A file from before the events table existed has none to copy.
+	hasEvents, err := hasTable(src, "events")
 	if err != nil {
 		return fmt.Errorf("read %s: %w", srcPath, err)
 	}
@@ -81,6 +87,9 @@ func copyDB(st *Store, srcPath string) error {
 	}
 
 	for _, t := range copyTables {
+		if t.name == "events" && !hasEvents {
+			continue
+		}
 		from := t.name
 		if from == "leaves" {
 			from = leaves
