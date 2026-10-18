@@ -1,0 +1,5 @@
+ehome.log
+*.db
+*.db-shm
+*.db-wal
+.superpowers/

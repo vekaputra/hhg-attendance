@@ -1,0 +1,142 @@
+package main
+
+// EHome 2.x/4.0 signalling: the device registers over UDP with "PPVSPMessage"
+// XML, we reply with where to send alarms (this same socket), then it sends
+// KEEPALIVE and ACS (access control event) requests, each acked with 200.
+// Message shapes follow FreeEhome (github.com/tsingeye/FreeEhome) and a DS-K1A8503MF capture.
+
+import (
+	"bytes"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"slices"
+)
+
+// allowedDeviceIDs are the Device IDs (from each device's platform access
+// settings) allowed to register. Fill these in.
+var allowedDeviceIDs = []string{"gshhgfp"}
+
+// alarmIP is where the device should send alarms. Leave empty to use the
+// address the device reached us on; set it when the server is behind NAT.
+var alarmIP = ""
+
+// ppvsp holds the fields we use; REGISTER's Password is deliberately not read so it never reaches the log.
+type ppvsp struct {
+	Sequence    int    `xml:"Sequence"`
+	CommandType string `xml:"CommandType"`
+	Command     string `xml:"Command"`
+	Params      struct {
+		DeviceID         string `xml:"DeviceID"`
+		Model            string `xml:"DevDetailedType"`
+		Firmware         string `xml:"FirmwareVersion"`
+		Time             string `xml:"Time"`
+		MajorType        string `xml:"MajorType"`
+		MinorType        string `xml:"MinorType"`
+		CardNo           string `xml:"CardNo"`
+		EmployeeNo       string `xml:"employeeNoString"`
+		AttendanceStatus string `xml:"attendanceStatus"`
+		SerialNo         string `xml:"serialNo"`
+	} `xml:"Params"`
+}
+
+func listenEHome(addr string) error {
+	conn, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		return err
+	}
+	slog.Info("ehome listening", "addr", addr)
+	registered := map[string]bool{} // sender addresses that passed REGISTER
+	buf := make([]byte, 64<<10)
+	for {
+		n, from, err := conn.ReadFrom(buf)
+		if err != nil {
+			return err
+		}
+		if reply := handleEHome(buf[:n], from, registered); reply != nil {
+			if _, err := conn.WriteTo(reply, from); err != nil {
+				slog.Warn("ehome reply failed", "to", from, "err", err)
+			}
+		}
+	}
+}
+
+// handleEHome logs one packet and returns the reply to send, if any.
+// shortcut: senders are trusted by UDP source address, which a host on the LAN can spoof; this stops casual fakes, not a determined attacker.
+func handleEHome(pkt []byte, from net.Addr, registered map[string]bool) []byte {
+	pkt = bytes.TrimRight(pkt, "\x00") // ACS events arrive NUL-padded to a fixed size
+	var m ppvsp
+	d := xml.NewDecoder(bytes.NewReader(pkt))
+	// shortcut: GBK/GB2312 is read as-is, so only ASCII text survives; decode with golang.org/x/text if names are Chinese.
+	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	if err := d.Decode(&m); err != nil {
+		slog.Warn("ehome unreadable packet", "from", from, "err", err, "data", string(pkt))
+		return nil
+	}
+
+	p := m.Params
+	switch {
+	case m.Command == "REGISTER":
+		if !slices.Contains(allowedDeviceIDs, p.DeviceID) {
+			slog.Warn("register rejected", "from", from, "deviceID", p.DeviceID)
+			return reply(m, 401, "Unauthorized", "", "")
+		}
+		registered[from.String()] = true
+		ip := alarmIP
+		if ip == "" {
+			ip = localIPFor(from)
+		}
+		slog.Info("device registered", "from", from, "deviceID", p.DeviceID, "model", p.Model, "firmware", p.Firmware, "alarmTo", ip)
+		// AlarmServerType 0 = UDP only.
+		return reply(m, 200, "OK", "", fmt.Sprintf("<KeepAliveSeconds>15</KeepAliveSeconds><AlarmServerIP>%s</AlarmServerIP>"+
+			"<AlarmServerPort>%s</AlarmServerPort><AlarmServerType>0</AlarmServerType>", ip, port))
+	case !registered[from.String()]:
+		// Employee and time are logged so a real device's taps aren't lost silently, e.g. right after this server restarts.
+		slog.Warn("ignored, sender not registered", "from", from, "command", m.Command, "employeeNo", p.EmployeeNo, "time", p.Time)
+		// 403 with Method REGISTER asks the device to register again (FreeEhome does this for keepalives).
+		return reply(m, 403, "Forbidden", "<Method>REGISTER</Method>", "")
+	case m.Command == "ACS":
+		// Unrecognised fingerprints, door, alarm and menu events carry no employee number; they're kept as a security trail.
+		if p.EmployeeNo == "" {
+			slog.Info("event", "time", p.Time, "major", p.MajorType, "minor", p.MinorType, "deviceID", p.DeviceID)
+		} else {
+			// shortcut: denied attempts by a known user are logged as taps too; filter on minor (e.g. 0x1 card, 0x26 fingerprint, 0x4b face pass) if they must not count.
+			slog.Info("tap",
+				"employeeNo", p.EmployeeNo,
+				"time", p.Time,
+				"status", p.AttendanceStatus,
+				"major", p.MajorType,
+				"minor", p.MinorType,
+				"cardNo", p.CardNo,
+				"serialNo", p.SerialNo,
+				"deviceID", p.DeviceID,
+			)
+		}
+	case m.Command != "KEEPALIVE":
+		slog.Info("ehome packet", "from", from, "data", string(pkt))
+	}
+	return reply(m, 200, "OK", "", "")
+}
+
+// reply builds the RESPONSE to request m; responses from the device get none.
+func reply(m ppvsp, status int, desc, method, params string) []byte {
+	if m.CommandType != "REQUEST" {
+		return nil
+	}
+	return fmt.Appendf(nil, `<?xml version="1.0" encoding="GB2312"?>`+
+		"<PPVSPMessage><Version>2.5</Version><Sequence>%d</Sequence><CommandType>RESPONSE</CommandType>%s"+
+		"<WhichCommand>%s</WhichCommand><Status>%d</Status><Description>%s</Description><Params>%s</Params></PPVSPMessage>",
+		m.Sequence, method, m.Command, status, desc, params)
+}
+
+// localIPFor returns our IP on the route to addr, which is the one the device reached on a LAN.
+func localIPFor(addr net.Addr) string {
+	c, err := net.Dial("udp", addr.String())
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	return c.LocalAddr().(*net.UDPAddr).IP.String()
+}
