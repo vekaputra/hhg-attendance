@@ -172,8 +172,9 @@ func TestCalendarNavigation(t *testing.T) {
 			}
 		}
 		// Today (the clock is 2026-10-12) keeps the view and organisation.
-		if !regexp.MustCompile(`href="[^"]*at=2026-10-12[^"]*">Today<`).MatchString(body) {
-			t.Errorf("%s lacks a Today link to at=2026-10-12", query)
+		q, _ := url.ParseQuery(query)
+		if today := fmt.Sprintf(`href="/calendar?at=2026-10-12&amp;org=%d&amp;view=%s">Today<`, office.ID, q.Get("view")); !strings.Contains(body, today) {
+			t.Errorf("%s lacks %s", query, today)
 		}
 	}
 }

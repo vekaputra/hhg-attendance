@@ -52,8 +52,9 @@ small { font-size: 12px; }
 .pager { display: flex; gap: 6px; }
 .content { display: flex; flex-direction: column; gap: 20px; padding: 24px 28px; }
 
-.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.seg a { padding: 6px 12px; color: var(--muted); font-weight: 500; text-decoration: none; }
+.seg { display: inline-flex; max-width: 100%; border: 1px solid var(--border-strong); border-radius: 8px; overflow: auto hidden; background: var(--surface); }
+.seg a { flex: none; padding: 6px 12px; color: var(--muted); font-weight: 500; text-decoration: none; white-space: nowrap; }
+.seg a:focus-visible { outline-offset: -2px; }
 .seg a + a { border-left: 1px solid var(--border); }
 .seg a:hover { background: var(--neutral-bg); }
 .seg a.on { background: var(--accent-soft); color: var(--accent-dark); }
@@ -169,7 +170,7 @@ legend { padding: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--neutr
 
 /* Phone: the sidebar becomes a top bar whose Menu button shows the nav and the user */
 @media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0; padding: 10px 14px; }
   .brand { flex: 1; padding: 0; }
   .menu { display: inline-block; }
