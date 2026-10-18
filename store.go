@@ -66,6 +66,12 @@ func OpenStore(driver, dsn string, loc *time.Location) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, loc: loc}
+	if driver == "sqlite" {
+		if err := renameOldLeave(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	// MySQL's driver rejects multi-statement scripts, so apply the schema one statement at a time.
 	for _, stmt := range strings.Split(schema, ";\n") {
 		if strings.TrimSpace(stmt) == "" {
@@ -85,6 +91,30 @@ func OpenStore(driver, dsn string, loc *time.Location) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// hasTable reports whether the SQLite database has the table.
+func hasTable(db *sql.DB, name string) (bool, error) {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&n)
+	return n > 0, err
+}
+
+// renameOldLeave renames the table of a SQLite file from before leave became leaves, which the schema would
+// otherwise leave behind while creating an empty leaves beside it.
+func renameOldLeave(db *sql.DB) error {
+	hasOld, err := hasTable(db, "leave")
+	if err != nil {
+		return err
+	}
+	hasNew, err := hasTable(db, "leaves")
+	if err != nil || !hasOld || hasNew {
+		return err
+	}
+	if _, err := db.Exec(`ALTER TABLE leave RENAME TO leaves`); err != nil {
+		return fmt.Errorf("rename leave to leaves: %w", err)
+	}
+	return nil
+}
+
 // isDuplicate reports whether err is a duplicate-key violation from either driver.
 func isDuplicate(err error) bool {
 	var se *sqlite.Error
@@ -93,6 +123,12 @@ func isDuplicate(err error) bool {
 	}
 	var me *mysql.MySQLError
 	return errors.As(err, &me) && me.Number == 1062
+}
+
+// isTooLong reports whether err is MySQL's "data too long for column" error; SQLite has no such limit.
+func isTooLong(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1406
 }
 
 // seed inserts the starting organisations unless any exist.

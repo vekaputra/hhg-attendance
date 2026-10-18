@@ -135,7 +135,10 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 				slog.Warn("tap time unreadable, not stored", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
 			} else if err := st.InsertTap(Tap{DeviceID: p.DeviceID, SerialNo: p.SerialNo, EmployeeID: p.EmployeeNo, Time: at}, now); err != nil {
 				slog.Error("store tap failed", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
-				return nil
+				// A value too long for its column fails the same way on every resend, so ack and drop it.
+				if !isTooLong(err) {
+					return nil
+				}
 			}
 		}
 	case m.Command != "KEEPALIVE":

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestOpenStoreSeedsOnce(t *testing.T) {
@@ -144,5 +147,47 @@ func TestRepeatedInsertsIgnored(t *testing.T) {
 	holidays := mustGet(s.Holidays(date("2026-12-01"), date("2026-12-31")))
 	if len(taps) != 1 || len(holidays) != 1 {
 		t.Errorf("got %d taps and %d holidays, want 1 and 1", len(taps), len(holidays))
+	}
+}
+
+// A file from before leave became leaves must keep its rows, not get a second, empty leaves table beside them.
+func TestOpenStoreKeepsOldLeave(t *testing.T) {
+	path := t.TempDir() + "/a.db"
+	s, err := OpenStore("sqlite", path, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.AddEmployee(Employee{ID: "E1", Name: "Eve", OrgID: mustGet(s.Orgs())[0].ID, ActiveFrom: "2026-10-01"}))
+	must(s.AddLeave("E1", date("2026-10-20"), date("2026-10-22")))
+	want := mustGet(s.Leaves(date("2026-10-01"), date("2026-10-31")))
+	s.Close()
+	execOnFile(t, path, `ALTER TABLE leaves RENAME TO leave`)
+
+	s, err = OpenStore("sqlite", path, time.UTC)
+	must(err)
+	defer s.Close()
+	if got := mustGet(s.Leaves(date("2026-10-01"), date("2026-10-31"))); len(want) != 1 || !reflect.DeepEqual(got, want) {
+		t.Errorf("leaves after reopening an old file = %+v, want %+v", got, want)
+	}
+	var legacy int
+	must(s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'leave'`).Scan(&legacy))
+	if legacy != 0 {
+		t.Error("the old leave table is still there beside leaves")
+	}
+}
+
+func TestIsTooLong(t *testing.T) {
+	tooLong := &mysql.MySQLError{Number: 1406, Message: "Data too long for column 'employee_id' at row 1"}
+	if !isTooLong(tooLong) || !isTooLong(fmt.Errorf("wrapped: %w", tooLong)) {
+		t.Error("isTooLong missed MySQL error 1406")
+	}
+	if isTooLong(&mysql.MySQLError{Number: 1062}) || isTooLong(nil) {
+		t.Error("isTooLong accepted an error that is not 1406")
 	}
 }

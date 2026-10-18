@@ -24,7 +24,8 @@ var copyTables = []struct{ name, cols string }{
 }
 
 // copyDB copies the SQLite database at srcPath into st, keeping IDs, all in one transaction. It refuses unless
-// st has no employees, taps or users, and replaces st's seeded orgs and shifts with the source's.
+// st has no employees, taps, users or holidays, and replaces st's seeded orgs and shifts, and any device
+// contacts, with the source's.
 func copyDB(st *Store, srcPath string) error {
 	if _, err := os.Stat(srcPath); err != nil {
 		return err // sql.Open would otherwise create an empty file
@@ -35,14 +36,28 @@ func copyDB(st *Store, srcPath string) error {
 	}
 	defer src.Close()
 
-	// A database from before the table was renamed has leave, not leaves.
+	// A database from before the table was renamed has leave, not leaves. One with both had OpenStore run on it
+	// before the rename was handled: leaves is empty, and leave still holds the rows.
 	leaves := "leaves"
-	var n int
-	if err := src.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'leaves'`).Scan(&n); err != nil {
+	hasLeaves, err := hasTable(src, "leaves")
+	if err != nil {
 		return fmt.Errorf("read %s: %w", srcPath, err)
 	}
-	if n == 0 {
+	hasLeave, err := hasTable(src, "leave")
+	if err != nil {
+		return fmt.Errorf("read %s: %w", srcPath, err)
+	}
+	var n int
+	switch {
+	case !hasLeaves:
 		leaves = "leave"
+	case hasLeave:
+		if err := src.QueryRow(`SELECT COUNT(*) FROM leave`).Scan(&n); err != nil {
+			return fmt.Errorf("read %s: %w", srcPath, err)
+		}
+		if n > 0 {
+			return fmt.Errorf("%s has both leave (%d rows) and leaves tables; copy the rows into leaves and drop leave, then retry", srcPath, n)
+		}
 	}
 
 	tx, err := st.db.Begin()
@@ -50,7 +65,7 @@ func copyDB(st *Store, srcPath string) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"employees", "taps", "users"} {
+	for _, table := range []string{"employees", "taps", "users", "holidays"} {
 		if err := tx.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			return err
 		}
@@ -58,7 +73,8 @@ func copyDB(st *Store, srcPath string) error {
 			return fmt.Errorf("target is not empty (%d rows in %s); copy-db needs a fresh database", n, table)
 		}
 	}
-	for _, table := range []string{"shifts", "orgs"} { // the seeded ones; the source's IDs would collide
+	// The seeded orgs and shifts, whose IDs would collide with the source's, and the contacts a started app recorded.
+	for _, table := range []string{"shifts", "orgs", "devices"} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 			return err
 		}

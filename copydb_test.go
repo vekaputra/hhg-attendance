@@ -17,6 +17,19 @@ func rowCount(t *testing.T, s *Store, table string) int {
 	return n
 }
 
+// execOnFile runs a statement directly on a SQLite file, to set up databases OpenStore would not produce.
+func execOnFile(t *testing.T, path, query string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(query); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCopyDB(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		name := "leaves"
@@ -72,14 +85,7 @@ func TestCopyDB(t *testing.T) {
 			wantReport, wantLeaves := report(from), mustGet(from.Leaves(date("2026-10-01"), date("2026-10-31")))
 			from.Close()
 			if legacy {
-				db, err := sql.Open("sqlite", src)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := db.Exec(`ALTER TABLE leaves RENAME TO leave`); err != nil {
-					t.Fatal(err)
-				}
-				db.Close()
+				execOnFile(t, src, `ALTER TABLE leaves RENAME TO leave`)
 			}
 
 			to := newTestStoreIn(t, testLoc)
@@ -141,4 +147,64 @@ func TestCopyDBRollsBack(t *testing.T) {
 	if orgs := mustGet(to.Orgs()); len(orgs) != 2 || orgs[0].Name != "Office" || orgs[1].Name != "Cafe" {
 		t.Errorf("orgs after failed copy = %+v, want the seeded Office and Cafe", orgs)
 	}
+}
+
+// OpenStore on a file from before the rename recreates an empty leaves table, so copying it would silently drop
+// the leave rows. A source holding rows in both tables cannot be copied without guessing.
+func TestCopyDBRefusesLeaveInBothTables(t *testing.T) {
+	src := t.TempDir() + "/src.db"
+	from, err := OpenStore("sqlite", src, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := from.AddEmployee(Employee{ID: "E1", Name: "Eve", OrgID: mustGet(from.Orgs())[0].ID, ActiveFrom: "2026-10-01"}); err != nil {
+		t.Fatal(err)
+	}
+	from.Close()
+	execOnFile(t, src, `CREATE TABLE leave (id INTEGER PRIMARY KEY, employee_id TEXT NOT NULL, from_day TEXT NOT NULL, to_day TEXT NOT NULL)`)
+	execOnFile(t, src, `INSERT INTO leave (employee_id, from_day, to_day) VALUES ('E1', '2026-10-20', '2026-10-22')`)
+
+	to := newTestStore(t)
+	if err := copyDB(to, src); err == nil || !strings.Contains(err.Error(), "leave") {
+		t.Errorf("copyDB error = %v, want a refusal naming the leave table", err)
+	}
+	if got := rowCount(t, to, "leaves"); got != 0 {
+		t.Errorf("refused copy left %d leaves rows", got)
+	}
+}
+
+// A target the app already ran on has device contacts, which the copy replaces; holidays are real data, so
+// a target holding any is refused.
+func TestCopyDBTargetGuards(t *testing.T) {
+	src := t.TempDir() + "/src.db"
+	from, err := OpenStore("sqlite", src, testLoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := from.TouchDevice("d1", at("2026-10-19 10:00:00")); err != nil {
+		t.Fatal(err)
+	}
+	from.Close()
+
+	t.Run("device contacts replaced", func(t *testing.T) {
+		to := newTestStoreIn(t, testLoc)
+		if err := to.TouchDevice("d1", at("2026-10-18 09:00:00")); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyDB(to, src); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := mustGet(to.DeviceContacts()), map[string]time.Time{"d1": at("2026-10-19 10:00:00")}; !reflect.DeepEqual(got, want) {
+			t.Errorf("contacts = %v, want %v", got, want)
+		}
+	})
+	t.Run("holidays refused", func(t *testing.T) {
+		to := newTestStoreIn(t, testLoc)
+		if err := to.AddHoliday(date("2026-12-25")); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyDB(to, src); err == nil || !strings.Contains(err.Error(), "not empty") {
+			t.Errorf("copyDB error = %v, want a refusal naming the non-empty target", err)
+		}
+	})
 }
