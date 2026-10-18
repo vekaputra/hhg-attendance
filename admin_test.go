@@ -241,3 +241,147 @@ func TestAdminRejectsBadInput(t *testing.T) {
 		t.Errorf("rejected input changed the data:\nbefore %s\nafter  %s", before, after)
 	}
 }
+
+// rosterFixture adds three Cafe employees to adminFixture: HHG0012 (active all month), HHG0013 (active from
+// Wednesday 2026-10-21) and HHG0014 (left on 2026-10-10). The clock is Sunday 2026-10-18 12:00.
+func rosterFixture(t *testing.T) (h http.Handler, session *http.Cookie, st *Store, office, cafe Org) {
+	t.Helper()
+	h, session, st, office, cafe = adminFixture(t)
+	for _, e := range []Employee{
+		{ID: "HHG0012", Name: "Sari", OrgID: cafe.ID, ActiveFrom: "2026-10-01"},
+		{ID: "HHG0013", Name: "Tono", OrgID: cafe.ID, ActiveFrom: "2026-10-21"},
+		{ID: "HHG0014", Name: "Umar", OrgID: cafe.ID, ActiveFrom: "2026-10-01", ActiveUntil: "2026-10-10"},
+	} {
+		if err := st.AddEmployee(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return
+}
+
+func TestRosterPage(t *testing.T) {
+	h, session, st, office, cafe := rosterFixture(t)
+	id := func(n int64) string { return strconv.FormatInt(n, 10) }
+	shift2 := mustGet(st.Shifts(cafe.ID))[1] // ordered by start: 1, 2, 3
+	mon := date("2026-10-19")
+	stored := func() RosterDay { return mustGet(st.Roster("HHG0012", mon, mon))["2026-10-19"] }
+	set := func(shift string) *httptest.ResponseRecorder {
+		return postForm(h, "/roster", formOf("emp", "HHG0012", "day", "2026-10-19", "shift", shift), session)
+	}
+
+	// Setting a cell answers with that cell, selected and titled with who changed it and when.
+	w := set(id(shift2.ID))
+	if w.Code != 200 {
+		t.Fatalf("POST /roster = %d, want 200: %s", w.Code, w.Body)
+	}
+	wantAll(t, w.Body.String(), `value="`+id(shift2.ID)+`" selected`, `title="changed by ana at 12:00"`)
+	if got := stored(); got.Start != "11:00" || got.ChangedBy != "ana" {
+		t.Fatalf("stored day = %+v, want shift starting 11:00 changed by ana", got)
+	}
+
+	// Editing the shift later leaves the stored day alone, and the page shows the old times as the selection.
+	if _, err := st.SaveShift(Shift{ID: shift2.ID, OrgID: cafe.ID, Name: "2", Start: "12:00", End: "21:00"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored(); got.Start != "11:00" {
+		t.Errorf("after editing the shift, stored Start = %q, want 11:00", got.Start)
+	}
+	page := getWithCookies(h, "/roster?org="+id(cafe.ID)+"&week=2026-10-19", session).Body.String()
+	wantAll(t, page, "HHG0012", `value="-1" selected disabled>2 · 11:00–20:00 (old times)`, `value="`+id(shift2.ID)+`">2 · 12:00–21:00`)
+
+	// A shift of another organisation is refused and the day is unchanged.
+	officeShift := mustGet(st.SaveShift(Shift{OrgID: office.ID, Name: "X", Start: "09:00", End: "18:00"}))
+	before := stored()
+	if w := set(id(officeShift)); w.Code != 400 {
+		t.Errorf("POST with an Office shift = %d, want 400", w.Code)
+	}
+	if got := stored(); got != before {
+		t.Errorf("a refused shift changed the day: %+v, want %+v", got, before)
+	}
+}
+
+func TestRosterWeek(t *testing.T) {
+	h, session, _, office, cafe := rosterFixture(t)
+	get := func(path string) *httptest.ResponseRecorder { return getWithCookies(h, path, session) }
+	selects := func(page, emp string) int { // the selects in emp's table row
+		_, row, _ := strings.Cut(page, emp)
+		row, _, _ = strings.Cut(row, "</tr>")
+		return strings.Count(row, "<select")
+	}
+
+	// The default is next week, and any day of a week shows that week.
+	def := get("/roster")
+	if def.Code != 200 {
+		t.Fatalf("GET /roster = %d, want 200", def.Code)
+	}
+	page := def.Body.String()
+	wantAll(t, page, "Mon 19 Oct", "Sun 25 Oct 2026", "week=2026-10-12", "week=2026-10-26", "org="+strconv.FormatInt(cafe.ID, 10))
+	if thu := get("/roster?week=2026-10-22").Body.String(); thu != page {
+		t.Error("a Thursday in the week shows a different page from the default")
+	}
+
+	// Rows are the employees active at some point in the week; days outside their period have no select.
+	for emp, want := range map[string]int{"HHG0012": 7, "HHG0013": 5} {
+		if got := selects(page, emp); got != want {
+			t.Errorf("%s has %d selects, want %d", emp, got, want)
+		}
+	}
+	if strings.Contains(page, "HHG0014") || strings.Contains(page, "HHG0002") {
+		t.Error("the page lists an employee who left before the week or works in another organisation")
+	}
+
+	for _, q := range []string{"org=" + strconv.FormatInt(office.ID, 10), "org=999", "week=19/10/2026"} {
+		if w := get("/roster?" + q); w.Code != 400 {
+			t.Errorf("GET /roster?%s = %d, want 400", q, w.Code)
+		}
+	}
+}
+
+// A refused change saves nothing and answers 400: an unknown or off-roster employee or a bad day with a plain
+// message, anything else with the stored cell and the message.
+func TestRosterRejectsBadInput(t *testing.T) {
+	h, session, st, office, cafe := rosterFixture(t)
+	shift := mustGet(st.Shifts(cafe.ID))[1]
+	officeShift := mustGet(st.SaveShift(Shift{OrgID: office.ID, Name: "X", Start: "09:00", End: "18:00"}))
+	if err := st.SetRoster("HHG0012", date("2026-10-19"), shift.ID, "bo", at("2026-10-17 09:00:00")); err != nil {
+		t.Fatal(err)
+	}
+	from, to := date("2000-01-01"), date("2100-01-01")
+	state := func() string {
+		return fmt.Sprint(mustGet(st.Roster("HHG0012", from, to)), mustGet(st.Roster("HHG0013", from, to)), mustGet(st.Roster("HHG0002", from, to)))
+	}
+	before := state()
+
+	sid := strconv.FormatInt(shift.ID, 10)
+	for _, c := range []struct {
+		emp, day, shift, msg string
+		cell                 bool
+	}{
+		{"NOPE", "2026-10-19", sid, "unknown employee", false},
+		{"HHG0002", "2026-10-19", sid, "not on a roster", false}, // Office is a fixed organisation
+		{"HHG0012", "19/10/2026", sid, "bad day", false},
+		{"HHG0013", "2026-10-19", sid, "not active that day", true}, // starts on the 21st
+		{"HHG0014", "2026-10-19", sid, "not active that day", true}, // left on the 10th
+		{"HHG0012", "2026-10-19", "", "unknown shift", true},
+		{"HHG0012", "2026-10-19", "x", "unknown shift", true},
+		{"HHG0012", "2026-10-19", "-1", "unknown shift", true}, // the "(old times)" option
+		{"HHG0012", "2026-10-19", "999", "unknown shift", true},
+		{"HHG0012", "2026-10-19", strconv.FormatInt(officeShift, 10), "unknown shift", true},
+	} {
+		w := postForm(h, "/roster", formOf("emp", c.emp, "day", c.day, "shift", c.shift), session)
+		if w.Code != 400 {
+			t.Errorf("POST %+v = %d, want 400", c, w.Code)
+		}
+		wantAll(t, w.Body.String(), c.msg)
+		if c.cell {
+			wantAll(t, w.Body.String(), `class="cell"`, `role="alert"`)
+		}
+	}
+	if after := state(); after != before {
+		t.Errorf("refused input changed the roster:\nbefore %s\nafter  %s", before, after)
+	}
+
+	// The cell that comes back still shows what is stored.
+	w := postForm(h, "/roster", formOf("emp", "HHG0012", "day", "2026-10-19", "shift", "x"), session)
+	wantAll(t, w.Body.String(), `value="`+sid+`" selected`, `title="changed by bo at 09:00"`)
+}

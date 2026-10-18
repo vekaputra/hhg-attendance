@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"maps"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -44,6 +46,8 @@ func (srv *server) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /holidays", func(w http.ResponseWriter, r *http.Request) { srv.showHolidays(w, r, http.StatusOK, "") })
 	post("/holidays", srv.addHoliday)
 	post("/holidays/{day}/delete", srv.deleteHoliday)
+	mux.HandleFunc("GET /roster", srv.showRoster)
+	post("/roster", srv.setRoster)
 }
 
 // today is the current attendance day, which turns over at dayStartHour.
@@ -483,4 +487,210 @@ func (srv *server) deleteHoliday(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/holidays", http.StatusSeeOther)
+}
+
+// Roster
+
+type rosterPage struct {
+	pageBase
+	Tabs       []navLink
+	Title      string
+	Prev, Next navLink
+	Dates      []time.Time // Monday to Sunday
+	Rows       []rosterRow
+}
+
+type rosterRow struct {
+	Employee Employee
+	Cells    []rosterCell // one per day
+}
+
+// rosterCell is one employee-day: a select of Off and the organisation's shifts, or a dash outside the employee's active period.
+type rosterCell struct {
+	Emp, Day string // Day is dateFmt
+	Active   bool
+	Options  []rosterOption
+	Title    string // who last changed the day, and when
+	Error    string // why the last change was refused
+}
+
+type rosterOption struct {
+	Value              int64 // a shift ID, 0 for off, -1 for the old times
+	Label              string
+	Selected, Disabled bool
+}
+
+func (e Employee) activeOn(day string) bool {
+	return day >= e.ActiveFrom && (e.ActiveUntil == "" || day <= e.ActiveUntil)
+}
+
+func shiftLabel(name, start, end string) string { return name + " · " + start + "–" + end }
+
+// newRosterCell shows what is stored for the day. The shift is matched by name and times, because a roster day keeps
+// the times it was set with; if the shift has since been edited, the stored times are shown as a disabled extra option.
+func newRosterCell(emp Employee, day string, shifts []Shift, stored RosterDay) rosterCell {
+	c := rosterCell{Emp: emp.ID, Day: day, Active: emp.activeOn(day)}
+	if !c.Active {
+		return c
+	}
+	matched := stored.Shift == "" // off
+	c.Options = []rosterOption{{Label: "Off", Selected: matched}}
+	for _, sh := range shifts {
+		sel := !matched && sh.Name == stored.Shift && sh.Start == stored.Start && sh.End == stored.End
+		matched = matched || sel
+		c.Options = append(c.Options, rosterOption{Value: sh.ID, Label: shiftLabel(sh.Name, sh.Start, sh.End), Selected: sel})
+	}
+	if !matched {
+		c.Options = append(c.Options, rosterOption{Value: -1, Label: shiftLabel(stored.Shift, stored.Start, stored.End) + " (old times)", Selected: true, Disabled: true})
+	}
+	if at, err := time.Parse(stampFmt, stored.ChangedAt); err == nil {
+		c.Title = "changed by " + stored.ChangedBy + " at " + clock(at)
+	}
+	return c
+}
+
+// showRoster is the week grid for one roster organisation. The week is the one containing ?week, default next week.
+func (srv *server) showRoster(w http.ResponseWriter, r *http.Request) {
+	orgs, err := srv.st.Orgs()
+	if err != nil {
+		serverError(w, "orgs", err)
+		return
+	}
+	orgs = slices.DeleteFunc(orgs, func(o Org) bool { return o.Kind != "roster" })
+	if len(orgs) == 0 {
+		http.Error(w, "no roster organisation", http.StatusNotFound)
+		return
+	}
+	q := r.URL.Query()
+	org := orgs[0]
+	if v := q.Get("org"); v != "" {
+		var ok bool
+		if org, ok = orgByID(orgs, v); !ok {
+			http.Error(w, "unknown roster organisation", http.StatusBadRequest)
+			return
+		}
+	}
+	day := srv.today().AddDate(0, 0, 7)
+	if v := q.Get("week"); v != "" {
+		if day, err = time.ParseInLocation(dateFmt, v, srv.loc); err != nil {
+			http.Error(w, "bad week", http.StatusBadRequest)
+			return
+		}
+	}
+	mon := day.AddDate(0, 0, 1-isoWeekday(day))
+	sun := mon.AddDate(0, 0, 6)
+
+	link := func(label string, o Org, week time.Time, on bool) navLink {
+		qs := url.Values{"org": {strconv.FormatInt(o.ID, 10)}, "week": {week.Format(dateFmt)}}
+		return navLink{label, "/roster?" + qs.Encode(), on}
+	}
+	page := rosterPage{Title: mon.Format("Mon 2 Jan") + " – " + sun.Format("Mon 2 Jan 2006")}
+	for _, o := range orgs {
+		page.Tabs = append(page.Tabs, link(o.Name, o, mon, o.ID == org.ID))
+	}
+	page.Prev, page.Next = link("previous week", org, mon.AddDate(0, 0, -7), false), link("next week", org, mon.AddDate(0, 0, 7), false)
+	for i := range 7 {
+		page.Dates = append(page.Dates, mon.AddDate(0, 0, i))
+	}
+
+	emps, err := srv.st.Employees(org.ID)
+	if err != nil {
+		serverError(w, "employees", err)
+		return
+	}
+	shifts, err := srv.st.Shifts(org.ID)
+	if err != nil {
+		serverError(w, "shifts", err)
+		return
+	}
+	for _, e := range emps {
+		if e.ActiveFrom > sun.Format(dateFmt) || (e.ActiveUntil != "" && e.ActiveUntil < mon.Format(dateFmt)) {
+			continue
+		}
+		stored, err := srv.st.Roster(e.ID, mon, sun)
+		if err != nil {
+			serverError(w, "roster", err)
+			return
+		}
+		row := rosterRow{Employee: e}
+		for _, d := range page.Dates {
+			ds := d.Format(dateFmt)
+			row.Cells = append(row.Cells, newRosterCell(e, ds, shifts, stored[ds]))
+		}
+		page.Rows = append(page.Rows, row)
+	}
+	if page.pageBase, err = srv.base(r); err != nil {
+		serverError(w, "device contacts", err)
+		return
+	}
+	srv.render(w, http.StatusOK, "roster.html", page)
+}
+
+// setRoster sets one employee's shift for one day and answers with the re-rendered cell, which htmx swaps in.
+// A refused change answers 400 with the cell as stored and the reason, except an unknown employee or a bad day,
+// which no page can send and so get a plain message.
+func (srv *server) setRoster(w http.ResponseWriter, r *http.Request) {
+	emps, err := srv.st.Employees(0)
+	if err != nil {
+		serverError(w, "employees", err)
+		return
+	}
+	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == r.PostFormValue("emp") })
+	if i < 0 {
+		http.Error(w, "unknown employee", http.StatusBadRequest)
+		return
+	}
+	emp := emps[i]
+	orgs, err := srv.st.Orgs()
+	if err != nil {
+		serverError(w, "orgs", err)
+		return
+	}
+	if !slices.ContainsFunc(orgs, func(o Org) bool { return o.ID == emp.OrgID && o.Kind == "roster" }) {
+		http.Error(w, emp.ID+" is not on a roster", http.StatusBadRequest)
+		return
+	}
+	day, err := time.ParseInLocation(dateFmt, r.PostFormValue("day"), srv.loc)
+	if err != nil {
+		http.Error(w, "bad day", http.StatusBadRequest)
+		return
+	}
+	ds := day.Format(dateFmt)
+	shifts, err := srv.st.Shifts(emp.OrgID)
+	if err != nil {
+		serverError(w, "shifts", err)
+		return
+	}
+
+	show := func(status int, msg string) {
+		stored, err := srv.st.Roster(emp.ID, day, day)
+		if err != nil {
+			serverError(w, "roster", err)
+			return
+		}
+		cell := newRosterCell(emp, ds, shifts, stored[ds])
+		cell.Error = msg
+		var buf bytes.Buffer
+		if err := srv.tmpl["roster.html"].ExecuteTemplate(&buf, "cell", cell); err != nil {
+			serverError(w, "render cell", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		buf.WriteTo(w)
+	}
+	if !emp.activeOn(ds) {
+		show(http.StatusBadRequest, "employee was not active that day")
+		return
+	}
+	shiftID, err := strconv.ParseInt(r.PostFormValue("shift"), 10, 64)
+	if err != nil || (shiftID != 0 && !slices.ContainsFunc(shifts, func(s Shift) bool { return s.ID == shiftID })) {
+		show(http.StatusBadRequest, "unknown shift")
+		return
+	}
+	if err := srv.st.SetRoster(emp.ID, day, shiftID, currentUser(r), srv.now()); err != nil {
+		serverError(w, "set roster", err)
+		return
+	}
+	show(http.StatusOK, "")
 }

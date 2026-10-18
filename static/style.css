@@ -56,6 +56,10 @@ input, button { font: inherit; padding: 6px 10px; }
 .fix fieldset { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; }
 .fix fieldset label { display: flex; align-items: center; gap: 4px; }
 
+/* roster cells: the select, then a refusal under it */
+.cell select { font: inherit; max-width: 100%; }
+.cell .warn { display: block; padding: 2px 0; background: none; }
+
 [data-status="late"] { background: #fff1cc; color: #8a5a00; }
 [data-status="absent"] { background: #ffd9d9; color: #a30000; }
 [data-status="leave"], [data-status="holiday"] { background: #e3f4e6; color: #1f6b2e; }

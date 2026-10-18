@@ -11,7 +11,7 @@
 </head>
 <body hx-boost="true">
 <header class="top">
-<nav><a href="/calendar">Calendar</a><a href="/person">People</a><a href="/employees">Employees</a><a href="/orgs">Organisations</a><a href="/leave">Leave</a><a href="/holidays">Holidays</a></nav>
+<nav><a href="/calendar">Calendar</a><a href="/person">People</a><a href="/roster">Roster</a><a href="/employees">Employees</a><a href="/orgs">Organisations</a><a href="/leave">Leave</a><a href="/holidays">Holidays</a></nav>
 <form method="post" action="/logout"><span>{{.User}}</span> <button type="submit">Log out</button></form>
 </header>
 {{range .Warnings}}<p class="warn" role="alert">{{.}}</p>
