@@ -1,0 +1,21 @@
+{{define "content"}}
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{end -}}
+<section class="fix">
+<h2>Add holiday</h2>
+<form method="post" action="/holidays">
+<label>Day <input type="date" name="day" required></label>
+<button type="submit">Add</button>
+</form>
+</section>
+<h2>Holidays</h2>
+{{if .Days}}<table class="data">
+<tbody>
+{{range .Days}}<tr><td>{{.}}</td>
+<td><form method="post" action="/holidays/{{.}}/delete"><button type="submit">Delete</button></form></td></tr>
+{{end}}</tbody>
+</table>
+{{else}}<p>No holidays.</p>
+{{end}}
+<p class="note">Showing last year and next year.</p>
+{{end}}

@@ -99,6 +99,7 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 	pages.HandleFunc("GET /person", srv.person)
 	pages.HandleFunc("POST /corrections", srv.correct)
 	pages.HandleFunc("POST /logout", logout)
+	srv.adminRoutes(pages)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", getLogin)

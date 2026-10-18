@@ -47,6 +47,15 @@ input, button { font: inherit; padding: 6px 10px; }
 .fix form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
 .fix label { display: grid; gap: 4px; }
 
+/* data entry pages: forms reuse .fix */
+.data { border-collapse: collapse; margin-bottom: 12px; }
+.data th, .data td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.data th { background: var(--head); font-weight: 600; }
+.data form { margin: 0; }
+.org { border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; margin-bottom: 12px; }
+.fix fieldset { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; }
+.fix fieldset label { display: flex; align-items: center; gap: 4px; }
+
 [data-status="late"] { background: #fff1cc; color: #8a5a00; }
 [data-status="absent"] { background: #ffd9d9; color: #a30000; }
 [data-status="leave"], [data-status="holiday"] { background: #e3f4e6; color: #1f6b2e; }

@@ -1,0 +1,25 @@
+{{define "content"}}
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{end -}}
+<section class="fix">
+<h2>Add employee</h2>
+<form method="post" action="/employees">
+<label>ID <input name="id" required maxlength="32"></label>
+<label>Name <input name="name" required maxlength="100"></label>
+<label>Organisation <select name="org">{{range .Orgs}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></label>
+<button type="submit">Add</button>
+</form>
+<p class="note">The employee counts from today. Use the ID the device knows them by.</p>
+</section>
+<h2>Employees</h2>
+{{if .Employees}}<table class="data">
+<thead><tr><th>ID</th><th>Name</th><th>Organisation</th><th>Active from</th><th>Active until</th><th></th></tr></thead>
+<tbody>
+{{range .Employees}}<tr><td>{{.ID}}</td><td>{{.Name}}</td><td>{{.Org}}</td><td>{{.ActiveFrom}}</td><td>{{.ActiveUntil}}</td>
+<td>{{if not .ActiveUntil}}<form method="post" action="/employees/{{.ID}}/deactivate"><button type="submit">Deactivate</button></form>{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+<p class="note">Deactivating makes today the last active day; past days stay in the reports.</p>
+{{else}}<p>No employees yet.</p>
+{{end}}
+{{end}}
