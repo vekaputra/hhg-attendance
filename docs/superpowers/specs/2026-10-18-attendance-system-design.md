@@ -42,7 +42,9 @@ creates their accounts.
    reach it by clicking a name in the other two views.
 4. **Hand-entered data**, with a page for each:
    - **Employees**: ID, name, organisation. The ID must equal the device's
-     `employeeNoString`, for example `HHG0001`.
+     `employeeNoString`, for example `HHG0001`. Name and organisation can be
+     edited later. An employee can be deactivated, after a confirmation, and
+     reactivated.
    - **Organisations** and their settings (below). More can be added later,
      for example a second cafe.
    - **Shifts** for each roster organisation: add new ones and change times.
@@ -206,6 +208,8 @@ the key so that a counter reset after a reboot can't silently drop real taps.
   for unregistered senders, and `event` lines for non-tap ACS events. It now
   also stores taps and records each device's last contact time.
 - **UI:** htmx (the owner's choice), with server-rendered `html/template`.
+  The base stylesheet is mvp.css (the owner's choice), a classless CSS file
+  vendored in `static/`. The app follows the OS dark-mode preference.
 - **Storage:** SQLite for development. Production will move to MySQL later
   (the owner's decision), so keep every SQL statement inside the store's
   methods. Avoid SQLite-only SQL functions such as `date()` and `strftime()`,

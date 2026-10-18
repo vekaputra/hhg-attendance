@@ -24,7 +24,7 @@
     - `stampFmt = "2006-01-02 15:04:05"`, which is the device's `Time` format.
   - The device sends `Time` without a zone. Parse it with `time.ParseInLocation(stampFmt, s, loc)`.
 - **Attendance day:** 03:00 to 02:59 the next morning, as `dayStartHour = 3`. A double tap is one within `doubleTapGap = 2 * time.Minute` of the previous tap. A device is flagged stale after `contactWarnAfter = 2 * time.Minute`.
-- **Ports:** UDP `port = "7600"` (existing) for EHome. The web app listens on TCP `webAddr = ":8080"`; the owner's reverse proxy handles HTTPS.
+- **Ports:** UDP `port = "7600"` (existing) for EHome. The web app listens on TCP `webAddr = ":8080"`; the owner's reverse proxy handles HTTPS. (Changed after the final review: the default is `127.0.0.1:8080`, so plain HTTP never faces the internet. See `DEPLOY.md`.)
 - **Existing listener behaviour stays unchanged:**
   - device-ID gate (`allowedDeviceIDs`), NUL trimming, and the 403 + `<Method>REGISTER</Method>` reply to unregistered senders;
   - `event` log lines for ACS events without an employee number, and `tap` log lines;
