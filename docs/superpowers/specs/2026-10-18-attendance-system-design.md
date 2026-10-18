@@ -95,7 +95,7 @@ The two organisations to start with:
 | Organisation | Type | Schedule | Notes |
 |---|---|---|---|
 | Office | fixed | 08:30–17:30 | Working days Monday–Friday *(my guess, confirm)* |
-| Cafe | roster | 1: 06:00–15:00<br>2: 11:00–20:00<br>3: 15:00–22:00 | Open 7 days, follows its roster |
+| Cafe | roster | 1: 06:00–15:00; 2: 11:00–20:00; 3: 15:00–22:00 | Open 7 days, follows its roster |
 
 Each employee belongs to exactly one organisation. The employee's
 organisation decides which schedule applies, not which device they tapped.
