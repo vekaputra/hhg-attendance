@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS roster (
 	PRIMARY KEY (employee_id, day)
 );
 
-CREATE TABLE IF NOT EXISTS leave (
+CREATE TABLE IF NOT EXISTS leaves (
 	id          INTEGER PRIMARY KEY,
 	employee_id TEXT NOT NULL REFERENCES employees (id),
 	from_day    TEXT NOT NULL,

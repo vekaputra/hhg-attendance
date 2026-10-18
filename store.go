@@ -3,10 +3,14 @@ package main
 import (
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/go-sql-driver/mysql"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // All dates and times are business-local text in these layouts; stampFmt is the device's Time format.
@@ -16,10 +20,13 @@ const (
 	stampFmt = "2006-01-02 15:04:05"
 )
 
-//go:embed schema.sql
-var schema string
+//go:embed schema_sqlite.sql
+var schemaSQLite string
 
-// Store owns the database. All SQL lives in its methods so the SQLite-to-MySQL move stays local.
+//go:embed schema_mysql.sql
+var schemaMySQL string
+
+// Store owns the database. All SQL lives in its methods and runs unchanged on SQLite (development) and MySQL (production).
 type Store struct {
 	db  *sql.DB
 	loc *time.Location
@@ -41,16 +48,33 @@ type Shift struct {
 	Start, End string // clockFmt
 }
 
-// OpenStore opens (creating if needed) the SQLite database at path, applies the schema and seeds an empty one.
-func OpenStore(path string, loc *time.Location) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+// OpenStore opens the database, applies the schema and seeds an empty one. driver is "sqlite" (dsn is the
+// file, created if needed) or "mysql" (dsn is the go-sql-driver DSN, used as given).
+func OpenStore(driver, dsn string, loc *time.Location) (*Store, error) {
+	var schema string
+	switch driver {
+	case "sqlite":
+		schema = schemaSQLite
+		dsn += "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	case "mysql":
+		schema = schemaMySQL
+	default:
+		return nil, fmt.Errorf("unknown database driver %q, want sqlite or mysql", driver)
+	}
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, err
 	}
 	s := &Store{db: db, loc: loc}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
+	// MySQL's driver rejects multi-statement scripts, so apply the schema one statement at a time.
+	for _, stmt := range strings.Split(schema, ";\n") {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("apply schema: %w", err)
+		}
 	}
 	if err := s.seed(); err != nil {
 		db.Close()
@@ -60,6 +84,16 @@ func OpenStore(path string, loc *time.Location) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// isDuplicate reports whether err is a duplicate-key violation from either driver.
+func isDuplicate(err error) bool {
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		return se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+	}
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1062
+}
 
 // seed inserts the starting organisations unless any exist.
 func (s *Store) seed() error {

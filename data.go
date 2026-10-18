@@ -99,11 +99,14 @@ func (s *Store) SetRoster(employeeID string, day time.Time, shiftID int64, by st
 			return fmt.Errorf("shift %d: %w", shiftID, err)
 		}
 	}
+	d, changed := day.Format(dateFmt), at.In(s.loc).Format(stampFmt)
 	_, err := s.db.Exec(`INSERT INTO roster (employee_id, day, shift_name, start_time, end_time, changed_by, changed_at)
-		VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)
-		ON CONFLICT (employee_id, day) DO UPDATE SET shift_name = excluded.shift_name, start_time = excluded.start_time,
-			end_time = excluded.end_time, changed_by = excluded.changed_by, changed_at = excluded.changed_at`,
-		employeeID, day.Format(dateFmt), name, start, end, by, at.In(s.loc).Format(stampFmt))
+		VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
+		employeeID, d, name, start, end, by, changed)
+	if isDuplicate(err) {
+		_, err = s.db.Exec(`UPDATE roster SET shift_name = NULLIF(?, ''), start_time = NULLIF(?, ''), end_time = NULLIF(?, ''),
+			changed_by = ?, changed_at = ? WHERE employee_id = ? AND day = ?`, name, start, end, by, changed, employeeID, d)
+	}
 	return err
 }
 
@@ -141,19 +144,19 @@ func (s *Store) AddLeave(employeeID string, from, to time.Time) error {
 	if to.Format(dateFmt) < from.Format(dateFmt) {
 		return fmt.Errorf("leave ends %s, before it starts %s", to.Format(dateFmt), from.Format(dateFmt))
 	}
-	_, err := s.db.Exec(`INSERT INTO leave (employee_id, from_day, to_day) VALUES (?, ?, ?)`,
+	_, err := s.db.Exec(`INSERT INTO leaves (employee_id, from_day, to_day) VALUES (?, ?, ?)`,
 		employeeID, from.Format(dateFmt), to.Format(dateFmt))
 	return err
 }
 
 func (s *Store) DeleteLeave(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM leave WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM leaves WHERE id = ?`, id)
 	return err
 }
 
 // Leaves returns the leave overlapping from..to inclusive, ordered by start.
 func (s *Store) Leaves(from, to time.Time) ([]Leave, error) {
-	rows, err := s.db.Query(`SELECT id, employee_id, from_day, to_day FROM leave WHERE from_day <= ? AND to_day >= ? ORDER BY from_day, id`,
+	rows, err := s.db.Query(`SELECT id, employee_id, from_day, to_day FROM leaves WHERE from_day <= ? AND to_day >= ? ORDER BY from_day, id`,
 		to.Format(dateFmt), from.Format(dateFmt))
 	if err != nil {
 		return nil, err
@@ -171,7 +174,10 @@ func (s *Store) Leaves(from, to time.Time) ([]Leave, error) {
 }
 
 func (s *Store) AddHoliday(day time.Time) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO holidays (day) VALUES (?)`, day.Format(dateFmt))
+	_, err := s.db.Exec(`INSERT INTO holidays (day) VALUES (?)`, day.Format(dateFmt))
+	if isDuplicate(err) {
+		return nil
+	}
 	return err
 }
 
@@ -221,10 +227,12 @@ func (s *Store) SaveCorrection(c Correction) error {
 		return t.In(s.loc).Format(stampFmt)
 	}
 	_, err := s.db.Exec(`INSERT INTO corrections (employee_id, day, check_in, check_out, changed_by, changed_at)
-		VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)
-		ON CONFLICT (employee_id, day) DO UPDATE SET check_in = excluded.check_in, check_out = excluded.check_out,
-			changed_by = excluded.changed_by, changed_at = excluded.changed_at`,
+		VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
 		c.EmployeeID, day, stamp(c.In), stamp(c.Out), c.By, stamp(c.At))
+	if isDuplicate(err) {
+		_, err = s.db.Exec(`UPDATE corrections SET check_in = NULLIF(?, ''), check_out = NULLIF(?, ''), changed_by = ?, changed_at = ?
+			WHERE employee_id = ? AND day = ?`, stamp(c.In), stamp(c.Out), c.By, stamp(c.At), c.EmployeeID, day)
+	}
 	return err
 }
 

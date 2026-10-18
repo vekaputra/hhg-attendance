@@ -10,8 +10,11 @@ type Tap struct {
 
 // InsertTap stores a tap; one the device already sent (a resend) is silently ignored.
 func (s *Store) InsertTap(t Tap, receivedAt time.Time) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO taps (device_id, serial_no, device_time, employee_id, received_at) VALUES (?, ?, ?, ?, ?)`,
+	_, err := s.db.Exec(`INSERT INTO taps (device_id, serial_no, device_time, employee_id, received_at) VALUES (?, ?, ?, ?, ?)`,
 		t.DeviceID, t.SerialNo, t.Time.In(s.loc).Format(stampFmt), t.EmployeeID, receivedAt.In(s.loc).Format(stampFmt))
+	if isDuplicate(err) {
+		return nil
+	}
 	return err
 }
 
@@ -40,8 +43,11 @@ func (s *Store) Taps(employeeID string, from, to time.Time) ([]time.Time, error)
 
 // TouchDevice records that the device was heard from at the given time.
 func (s *Store) TouchDevice(deviceID string, at time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO devices (device_id, last_contact) VALUES (?, ?)
-		ON CONFLICT (device_id) DO UPDATE SET last_contact = excluded.last_contact`, deviceID, at.In(s.loc).Format(stampFmt))
+	contact := at.In(s.loc).Format(stampFmt)
+	_, err := s.db.Exec(`INSERT INTO devices (device_id, last_contact) VALUES (?, ?)`, deviceID, contact)
+	if isDuplicate(err) {
+		_, err = s.db.Exec(`UPDATE devices SET last_contact = ? WHERE device_id = ?`, contact, deviceID)
+	}
 	return err
 }
 

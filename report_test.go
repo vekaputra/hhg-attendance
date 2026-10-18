@@ -7,15 +7,7 @@ import (
 	"time"
 )
 
-func newReportStore(t *testing.T) *Store {
-	t.Helper()
-	s, err := OpenStore(t.TempDir()+"/a.db", testLoc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
-}
+func newReportStore(t *testing.T) *Store { return newTestStoreIn(t, testLoc) }
 
 // date is midnight of a dateFmt day in testLoc.
 func date(s string) time.Time { return at(s + " 00:00:00") }

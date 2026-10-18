@@ -1,5 +1,6 @@
 // Command hhg-attendance records a Hikvision EHome 4.0 device's taps over UDP (ehome.go) and serves the
 // attendance web app (web.go). "hhg-attendance adduser <name>" sets a login password, read from stdin.
+// "hhg-attendance copy-db <sqlite-file>" copies an existing SQLite database into the configured store.
 package main
 
 import (
@@ -21,8 +22,12 @@ var webAddr = "127.0.0.1:8080"
 // Business timezone, e.g. "Asia/Jakarta". Fill this in.
 var timezone = ""
 
-// dbPath is the SQLite database file.
-var dbPath = "attendance.db"
+// dbDriver is "sqlite" (development) or "mysql" (production).
+var dbDriver = "sqlite"
+
+// dbDSN is the SQLite file, or the MySQL DSN (see DEPLOY.md). The ATTENDANCE_DSN environment variable
+// overrides it, so a MySQL password never has to be compiled into the binary.
+var dbDSN = "attendance.db"
 
 func main() {
 	f, err := os.OpenFile("ehome.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -38,9 +43,12 @@ func main() {
 		slog.Error("set a valid business timezone in main.go", "timezone", timezone, "err", err)
 		os.Exit(1)
 	}
-	st, err := OpenStore(dbPath, loc)
+	if v := os.Getenv("ATTENDANCE_DSN"); v != "" {
+		dbDSN = v
+	}
+	st, err := OpenStore(dbDriver, dbDSN, loc)
 	if err != nil {
-		slog.Error("open store", "path", dbPath, "err", err)
+		slog.Error("open store", "driver", dbDriver, "err", err) // not the DSN: it may hold a password
 		os.Exit(1)
 	}
 
@@ -50,6 +58,13 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("user saved", "name", os.Args[2])
+		os.Exit(0)
+	}
+	if len(os.Args) == 3 && os.Args[1] == "copy-db" {
+		if err := copyDB(st, os.Args[2]); err != nil {
+			slog.Error("copy db", "err", err)
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 

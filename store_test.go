@@ -43,7 +43,7 @@ func TestOpenStoreSeedsOnce(t *testing.T) {
 		}
 	}
 
-	s, err := OpenStore(path, time.UTC)
+	s, err := OpenStore("sqlite", path, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +52,97 @@ func TestOpenStoreSeedsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err = OpenStore(path, time.UTC)
+	s, err = OpenStore("sqlite", path, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	check(s)
+}
+
+func TestIsDuplicate(t *testing.T) {
+	s := newTestStore(t)
+	exec := func(q string) error { _, err := s.db.Exec(q); return err }
+
+	if err := exec(`INSERT INTO holidays (day) VALUES ('2026-01-01')`); err != nil {
+		t.Fatal(err)
+	}
+	for name, q := range map[string]string{
+		"primary key": `INSERT INTO holidays (day) VALUES ('2026-01-01')`,
+		"unique":      `INSERT INTO orgs (name, kind) VALUES ('Office', 'fixed')`, // seeded
+	} {
+		if err := exec(q); err == nil || !isDuplicate(err) {
+			t.Errorf("%s: isDuplicate(%v) = false, want true", name, err)
+		}
+	}
+	// Other constraint failures and no error at all are not duplicates.
+	if err := exec(`INSERT INTO shifts (org_id, name, start_time, end_time) VALUES (999, 'x', '06:00', '07:00')`); err == nil || isDuplicate(err) {
+		t.Errorf("foreign key violation: err = %v, isDuplicate = %v; want an error that is not a duplicate", err, isDuplicate(err))
+	}
+	if isDuplicate(nil) {
+		t.Error("isDuplicate(nil) = true")
+	}
+}
+
+// Each upsert run twice must leave one row holding the second call's values.
+func TestUpsertsKeepLatest(t *testing.T) {
+	s := newTestStoreIn(t, testLoc)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	cafe := mustGet(s.Orgs())[1]
+	shifts := mustGet(s.Shifts(cafe.ID))
+	must(s.AddEmployee(Employee{ID: "E1", Name: "Eve", OrgID: cafe.ID, ActiveFrom: "2026-01-01"}))
+
+	must(s.TouchDevice("d1", at("2026-10-18 09:00:00")))
+	must(s.TouchDevice("d1", at("2026-10-18 10:00:00")))
+	if got, want := mustGet(s.DeviceContacts()), map[string]time.Time{"d1": at("2026-10-18 10:00:00")}; !reflect.DeepEqual(got, want) {
+		t.Errorf("TouchDevice: contacts = %v, want %v", got, want)
+	}
+
+	must(s.SetUser("ana", "first password"))
+	must(s.SetUser("ana", "second password"))
+	var users int
+	must(s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users))
+	if first, second := mustGet(s.CheckUser("ana", "first password")), mustGet(s.CheckUser("ana", "second password")); users != 1 || first || !second {
+		t.Errorf("SetUser: %d users, first password ok = %v, second ok = %v; want 1, false, true", users, first, second)
+	}
+
+	day := date("2026-10-19")
+	must(s.SetRoster("E1", day, shifts[0].ID, "mgr", at("2026-10-18 09:00:00")))
+	must(s.SetRoster("E1", day, shifts[1].ID, "bo", at("2026-10-18 10:00:00")))
+	wantRoster := map[string]RosterDay{"2026-10-19": {Shift: "2", Start: "11:00", End: "20:00", ChangedBy: "bo", ChangedAt: "2026-10-18 10:00:00"}}
+	if got := mustGet(s.Roster("E1", day, day)); !reflect.DeepEqual(got, wantRoster) {
+		t.Errorf("SetRoster: roster = %v, want %v", got, wantRoster)
+	}
+
+	// The second correction replaces the first outright: its missing check-in is not merged from the first.
+	must(s.SaveCorrection(Correction{EmployeeID: "E1", Day: day, In: at("2026-10-19 08:00:00"), By: "mgr", At: at("2026-10-19 12:00:00")}))
+	must(s.SaveCorrection(Correction{EmployeeID: "E1", Day: day, Out: at("2026-10-19 18:00:00"), By: "bo", At: at("2026-10-19 19:00:00")}))
+	wantFixes := map[string]Fix{"2026-10-19": {Out: at("2026-10-19 18:00:00")}}
+	if got := mustGet(s.Corrections("E1", day, day)); !reflect.DeepEqual(got, wantFixes) {
+		t.Errorf("SaveCorrection: fixes = %v, want %v", got, wantFixes)
+	}
+}
+
+// A resent tap and a repeated holiday are not errors and not stored twice.
+func TestRepeatedInsertsIgnored(t *testing.T) {
+	s := newTestStoreIn(t, testLoc)
+	tap := Tap{DeviceID: "d1", SerialNo: "83", EmployeeID: "E1", Time: at("2026-10-19 08:00:00")}
+	for range 2 {
+		if err := s.InsertTap(tap, at("2026-10-19 08:00:01")); err != nil {
+			t.Fatalf("InsertTap: %v", err)
+		}
+		if err := s.AddHoliday(date("2026-12-25")); err != nil {
+			t.Fatalf("AddHoliday: %v", err)
+		}
+	}
+	taps := mustGet(s.Taps("E1", at("2026-10-19 00:00:00"), at("2026-10-20 00:00:00")))
+	holidays := mustGet(s.Holidays(date("2026-12-01"), date("2026-12-31")))
+	if len(taps) != 1 || len(holidays) != 1 {
+		t.Errorf("got %d taps and %d holidays, want 1 and 1", len(taps), len(holidays))
+	}
 }

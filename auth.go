@@ -63,9 +63,12 @@ func (s *Store) SetUser(name, password string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO users (name, salt, hash) VALUES (?, ?, ?)
-		ON CONFLICT (name) DO UPDATE SET salt = excluded.salt, hash = excluded.hash`,
-		name, hex.EncodeToString(salt), hex.EncodeToString(hash)); err != nil {
+	saltHex, hashHex := hex.EncodeToString(salt), hex.EncodeToString(hash)
+	_, err = tx.Exec(`INSERT INTO users (name, salt, hash) VALUES (?, ?, ?)`, name, saltHex, hashHex)
+	if isDuplicate(err) {
+		_, err = tx.Exec(`UPDATE users SET salt = ?, hash = ? WHERE name = ?`, saltHex, hashHex, name)
+	}
+	if err != nil {
 		return err
 	}
 	// A reset must also cut off whoever holds a cookie from the old password.

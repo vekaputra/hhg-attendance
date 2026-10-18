@@ -1,6 +1,7 @@
 # Deploying hhg-attendance
 
-One binary: the EHome UDP listener and the web app, with a SQLite file beside it.
+One binary: the EHome UDP listener and the web app. Production stores its data in MySQL (see "MySQL");
+development uses a SQLite file beside the binary, which needs no setup.
 
 ## Build
 
@@ -12,6 +13,45 @@ Or edit `timezone` (main.go) and `alarmIP` (ehome.go) and run `go build`. The ap
 timezone is empty or unknown. `alarmIP` is where the devices are told to send events; on a VPS behind NAT
 (Oracle's public IP is NAT'd) it must be the public IP. If it is empty and a device registers from the internet,
 the log shows an error at REGISTER.
+
+## MySQL
+
+Needs MySQL 8.0.16 or newer (older versions silently ignore the `CHECK` on `orgs.kind`).
+
+1. Create the database and a user that owns it. The binary collation keeps comparisons case-sensitive, as in SQLite:
+
+       CREATE DATABASE hhg CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+       CREATE USER 'hhg'@'127.0.0.1' IDENTIFIED BY '<password>';
+       GRANT ALL PRIVILEGES ON hhg.* TO 'hhg'@'127.0.0.1';
+
+   The app creates its tables on start, which these privileges cover.
+
+2. Build with the driver set (default is `sqlite`):
+
+       go build -ldflags "-X main.timezone=Asia/Jakarta -X main.alarmIP=<VPS public IP> -X main.dbDriver=mysql" -o hhg-attendance .
+
+   Or edit `dbDriver` in `main.go`.
+
+3. Pass the DSN in the environment, not the binary, so the password is never compiled in. `ATTENDANCE_DSN`
+   overrides `dbDSN` (the SQLite file name by default):
+
+       ATTENDANCE_DSN='hhg:<password>@tcp(127.0.0.1:3306)/hhg?charset=utf8mb4&collation=utf8mb4_bin' ./hhg-attendance
+
+   Keep `charset` and `collation` as shown. `parseTime` and `loc` are not needed: times are stored as text.
+   Under systemd, put the line in an `EnvironmentFile=` readable only by the service user. The same variable
+   applies to `adduser` and `copy-db`.
+
+### Moving an existing SQLite database
+
+With the app stopped (so no tap lands in the old file), run the new binary once with the SQLite file as the argument:
+
+    ATTENDANCE_DSN='...' ./hhg-attendance copy-db attendance.db
+
+It copies every table with the same IDs, in one transaction, and logs the row count per table. Sessions are not
+copied, so everyone logs in again. It refuses unless the MySQL database has no employees, taps or users, so run it
+before the first start on MySQL (a running app writes device contacts, which would make the copy fail on a
+duplicate). If it fails, nothing is copied: fix the cause and run it again. The SQLite file is only read; keep it
+until you have checked the app.
 
 ## Devices
 
@@ -46,8 +86,12 @@ The web app speaks plain HTTP, so put a proxy in front of it:
 
 ## Files and backups
 
-`attendance.db` (with `-wal` and `-shm` beside it while running) and `ehome.log` are created in the working
-directory, so run it from a directory you back up. Back up with
+`ehome.log` is created in the working directory. With MySQL, back up the database:
+
+    mysqldump --single-transaction -u hhg -p hhg > backup-$(date +%F).sql
+
+With SQLite (development), `attendance.db` (with `-wal` and `-shm` beside it while running) is created in the
+working directory. Back up with
 
     sqlite3 attendance.db "VACUUM INTO 'backup-$(date +%F).db'"
 
@@ -56,5 +100,5 @@ which is safe while the app runs; it fails if the target file already exists.
 ## Notes
 
 - Pages follow the OS or browser dark-mode setting.
-- The database is SQLite for now; production is planned to move to MySQL. All SQL lives in the `Store` methods
-  (`store.go`, `taps.go`, `data.go`, `auth.go`) so only those change.
+- All SQL lives in the `Store` methods (`store.go`, `taps.go`, `data.go`, `auth.go`) and runs unchanged on SQLite
+  and MySQL. A schema change goes in both `schema_sqlite.sql` and `schema_mysql.sql`.
