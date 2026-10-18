@@ -156,6 +156,15 @@ func TestLoginFlow(t *testing.T) {
 		t.Errorf("without session = %d to %q, want 303 to /login", w.Code, w.Header().Get("Location"))
 	}
 
+	// An htmx request can't follow a 303 to the login page without swapping it into the page; it is told to navigate.
+	r := httptest.NewRequest("GET", "/calendar", nil)
+	r.Header.Set("HX-Request", "true")
+	w = httptest.NewRecorder()
+	protected.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("HX-Redirect") != "/login" {
+		t.Errorf("htmx without session = %d, HX-Redirect %q; want 200, /login", w.Code, w.Header().Get("HX-Redirect"))
+	}
+
 	w = postCreds(logout, "/logout", "", "", c)
 	if w.Code != 303 || w.Header().Get("Location") != "/login" || sessionFrom(t, w).MaxAge >= 0 {
 		t.Errorf("logout = %d to %q, cookie %+v; want 303 to /login clearing the cookie", w.Code, w.Header().Get("Location"), sessionFrom(t, w))

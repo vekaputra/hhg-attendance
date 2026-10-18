@@ -2,8 +2,10 @@
 <form method="post" action="/orgs">
 <input type="hidden" name="id" value="{{if .ID}}{{.ID}}{{end}}">
 <label>Name <input name="name" value="{{.Name}}" required maxlength="100"></label>
-<label>Kind <select name="kind"><option value="fixed"{{if eq .Kind "fixed"}} selected{{end}}>Fixed hours</option><option value="roster"{{if eq .Kind "roster"}} selected{{end}}>Roster</option></select></label>
-<label>Grace (minutes) <input type="number" name="grace" value="{{.GraceMinutes}}" min="0" max="240" required></label>
+{{if .ID}}<input type="hidden" name="kind" value="{{.Kind}}">
+<label>Kind <input value="{{if eq .Kind "roster"}}Roster{{else}}Fixed hours{{end}}" disabled></label>
+{{else}}<label>Kind <select name="kind"><option value="fixed">Fixed hours</option><option value="roster">Roster</option></select></label>
+{{end}}<label>Grace (minutes) <input type="number" name="grace" value="{{.GraceMinutes}}" min="0" max="240" required></label>
 <label>Start <input type="time" name="start" value="{{.Start}}"></label>
 <label>End <input type="time" name="end" value="{{.End}}"></label>
 <fieldset><legend>Weekdays</legend>{{range .Days}}<label><input type="checkbox" name="weekdays" value="{{.N}}"{{if .On}} checked{{end}}> {{.Name}}</label>{{end}}</fieldset>

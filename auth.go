@@ -242,6 +242,7 @@ func loginHandlers(st *Store, lim *limiter, now func() time.Time, tmpl *template
 type userKey struct{}
 
 // requireLogin redirects to /login unless the request has a live session, and otherwise exposes the user via currentUser.
+// An htmx request gets an HX-Redirect instead of a 303.
 func requireLogin(st *Store, now func() time.Time, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var user string
@@ -253,6 +254,11 @@ func requireLogin(st *Store, now func() time.Time, next http.Handler) http.Handl
 			}
 		}
 		if user == "" {
+			if r.Header.Get("HX-Request") == "true" {
+				// htmx follows a 303 and would swap the login page into the page; HX-Redirect makes it navigate.
+				w.Header().Set("HX-Redirect", "/login")
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}

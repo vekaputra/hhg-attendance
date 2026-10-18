@@ -66,7 +66,7 @@ func listenEHome(addr string, st *Store) error {
 
 // handleEHome logs one packet, records device contact and taps in st, and returns the reply to send, if any.
 // A nil reply for a request means the tap could not be stored, so the device resends it.
-// shortcut: senders are trusted by UDP source address, which a host on the LAN can spoof; this stops casual fakes, not a determined attacker.
+// shortcut: senders are trusted by UDP source address, which anyone on the internet can spoof; the firewall allow-list of the devices' public IPs is what protects this.
 func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Store) []byte {
 	pkt = bytes.TrimRight(pkt, "\x00") // ACS events arrive NUL-padded to a fixed size
 	var m ppvsp
@@ -99,6 +99,10 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 		ip := alarmIP
 		if ip == "" {
 			ip = localIPFor(from)
+			host, _, _ := net.SplitHostPort(from.String())
+			if isPublic(net.ParseIP(host)) && net.ParseIP(ip).IsPrivate() {
+				slog.Error("alarmIP is empty and this server is behind NAT; set alarmIP to the public IP or devices will send events to a private address", "from", from, "alarmTo", ip)
+			}
 		}
 		slog.Info("device registered", "from", from, "deviceID", p.DeviceID, "model", p.Model, "firmware", p.Firmware, "alarmTo", ip)
 		// AlarmServerType 0 = UDP only.
@@ -160,3 +164,6 @@ func localIPFor(addr net.Addr) string {
 	defer c.Close()
 	return c.LocalAddr().(*net.UDPAddr).IP.String()
 }
+
+// isPublic reports whether ip is an internet address: not private, loopback, link-local, multicast or unspecified.
+func isPublic(ip net.IP) bool { return ip.IsGlobalUnicast() && !ip.IsPrivate() }

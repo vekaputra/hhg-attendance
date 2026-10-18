@@ -178,3 +178,24 @@ func TestHandleEHomeStoreFailureNoAck(t *testing.T) {
 		t.Errorf("acked a tap that was not stored: %s", reply)
 	}
 }
+
+func TestIsPublic(t *testing.T) {
+	for ip, want := range map[string]bool{
+		"8.8.8.8":         true,
+		"2001:4860::8888": true,
+		"192.168.1.5":     false,
+		"10.0.0.2":        false,
+		"172.16.0.1":      false,
+		"fd00::1":         false,
+		"127.0.0.1":       false,
+		"169.254.1.1":     false,
+		"0.0.0.0":         false,
+	} {
+		if got := isPublic(net.ParseIP(ip)); got != want {
+			t.Errorf("isPublic(%s) = %v, want %v", ip, got, want)
+		}
+	}
+	if isPublic(nil) {
+		t.Error("isPublic(nil) = true")
+	}
+}

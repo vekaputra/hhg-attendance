@@ -15,7 +15,8 @@ import (
 var port = "7600"
 
 // webAddr is where the web app listens; the reverse proxy in front of it handles HTTPS.
-var webAddr = ":8080"
+// It is loopback-only, so the proxy must run on this host.
+var webAddr = "127.0.0.1:8080"
 
 // Business timezone, e.g. "Asia/Jakarta". Fill this in.
 var timezone = ""

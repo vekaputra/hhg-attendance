@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
@@ -35,8 +36,10 @@ func (srv *server) adminRoutes(mux *http.ServeMux) {
 		})
 	}
 	mux.HandleFunc("GET /employees", func(w http.ResponseWriter, r *http.Request) { srv.showEmployees(w, r, http.StatusOK, "") })
-	post("/employees", srv.addEmployee)
+	post("/employees", srv.saveEmployee)
+	post("/employees/{id}", srv.saveEmployee)
 	post("/employees/{id}/deactivate", srv.deactivateEmployee)
+	post("/employees/{id}/reactivate", srv.reactivateEmployee)
 	mux.HandleFunc("GET /orgs", func(w http.ResponseWriter, r *http.Request) { srv.showOrgs(w, r, http.StatusOK, "") })
 	post("/orgs", srv.saveOrg)
 	post("/orgs/{id}/shifts", srv.saveShift)
@@ -59,7 +62,8 @@ func validName(s string) bool {
 }
 
 // timeWindow checks a start and an end as clockFmt that differ, and returns them zero-padded ("8:00" is "08:00")
-// so they sort as text.
+// so they sort as text. The window must fit in one attendance day: it can't start before dayStartHour, and if it
+// runs overnight it can't end after dayStartHour, or its taps would split across two days.
 func timeWindow(start, end string) (string, string, error) {
 	s, err := time.Parse(clockFmt, start)
 	if err != nil {
@@ -71,6 +75,13 @@ func timeWindow(start, end string) (string, string, error) {
 	}
 	if s.Equal(e) {
 		return "", "", errors.New("start and end must differ")
+	}
+	dayStart := time.Date(0, 1, 1, dayStartHour, 0, 0, 0, time.UTC) // time.Parse(clockFmt) dates are year 0
+	if s.Before(dayStart) {
+		return "", "", fmt.Errorf("start must be %s or later: the attendance day begins then", dayStart.Format(clockFmt))
+	}
+	if e.Before(s) && e.After(dayStart) {
+		return "", "", fmt.Errorf("a window that runs past midnight must end by %s, when the attendance day ends", dayStart.Format(clockFmt))
 	}
 	return s.Format(clockFmt), e.Format(clockFmt), nil
 }
@@ -84,18 +95,22 @@ func orgByID(orgs []Org, v string) (Org, bool) {
 	return orgs[i], true
 }
 
+// employeeByID finds the employee with the given ID.
+func employeeByID(emps []Employee, id string) (Employee, bool) {
+	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == id })
+	if i < 0 {
+		return Employee{}, false
+	}
+	return emps[i], true
+}
+
 // Employees
 
 type employeesPage struct {
 	pageBase
 	Error     string
-	Employees []employeeRow
+	Employees []Employee
 	Orgs      []Org
-}
-
-type employeeRow struct {
-	Employee
-	Org string // the organisation's name
 }
 
 func (srv *server) showEmployees(w http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -109,14 +124,7 @@ func (srv *server) showEmployees(w http.ResponseWriter, r *http.Request, status 
 		serverError(w, "orgs", err)
 		return
 	}
-	names := map[int64]string{}
-	for _, o := range orgs {
-		names[o.ID] = o.Name
-	}
-	page := employeesPage{Error: msg, Orgs: orgs}
-	for _, e := range emps {
-		page.Employees = append(page.Employees, employeeRow{e, names[e.OrgID]})
-	}
+	page := employeesPage{Error: msg, Employees: emps, Orgs: orgs}
 	if page.pageBase, err = srv.base(r); err != nil {
 		serverError(w, "device contacts", err)
 		return
@@ -124,13 +132,28 @@ func (srv *server) showEmployees(w http.ResponseWriter, r *http.Request, status 
 	srv.render(w, status, "employees.html", page)
 }
 
-func (srv *server) addEmployee(w http.ResponseWriter, r *http.Request) {
+// saveEmployee adds the employee, or edits the name and organisation of the one in the path.
+func (srv *server) saveEmployee(w http.ResponseWriter, r *http.Request) {
 	reject := func(msg string) { srv.showEmployees(w, r, http.StatusBadRequest, msg) }
-	id, name := r.PostFormValue("id"), strings.TrimSpace(r.PostFormValue("name"))
-	if !employeeIDRE.MatchString(id) {
-		reject("bad employee ID: use 1 to 32 letters, digits, - or _")
+	id := r.PathValue("id")
+	editing := id != ""
+	if !editing {
+		if id = r.PostFormValue("id"); !employeeIDRE.MatchString(id) {
+			reject("bad employee ID: use 1 to 32 letters, digits, - or _")
+			return
+		}
+	}
+	emps, err := srv.st.Employees(0)
+	if err != nil {
+		serverError(w, "employees", err)
 		return
 	}
+	_, exists := employeeByID(emps, id)
+	if editing && !exists {
+		reject("unknown employee")
+		return
+	}
+	name := strings.TrimSpace(r.PostFormValue("name"))
 	if !validName(name) {
 		reject(badName)
 		return
@@ -145,17 +168,17 @@ func (srv *server) addEmployee(w http.ResponseWriter, r *http.Request) {
 		reject("unknown organisation")
 		return
 	}
-	emps, err := srv.st.Employees(0)
-	if err != nil {
-		serverError(w, "employees", err)
-		return
-	}
-	if slices.ContainsFunc(emps, func(e Employee) bool { return e.ID == id }) {
+	if !editing && exists {
 		reject("employee " + id + " already exists")
 		return
 	}
-	if err := srv.st.AddEmployee(Employee{ID: id, Name: name, OrgID: org.ID, ActiveFrom: srv.today().Format(dateFmt)}); err != nil {
-		serverError(w, "add employee", err)
+	if editing {
+		err = srv.st.UpdateEmployee(id, name, org.ID)
+	} else {
+		err = srv.st.AddEmployee(Employee{ID: id, Name: name, OrgID: org.ID, ActiveFrom: srv.today().Format(dateFmt)})
+	}
+	if err != nil {
+		serverError(w, "save employee", err)
 		return
 	}
 	http.Redirect(w, r, "/employees", http.StatusSeeOther)
@@ -170,17 +193,42 @@ func (srv *server) deactivateEmployee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == id })
-	if i < 0 {
+	emp, ok := employeeByID(emps, id)
+	if !ok {
 		reject("unknown employee")
 		return
 	}
-	if emps[i].ActiveUntil != "" {
+	if emp.ActiveUntil != "" {
 		reject(id + " is already deactivated")
 		return
 	}
 	if err := srv.st.DeactivateEmployee(id, srv.today()); err != nil {
 		serverError(w, "deactivate employee", err)
+		return
+	}
+	http.Redirect(w, r, "/employees", http.StatusSeeOther)
+}
+
+// reactivateEmployee clears a deactivated employee's last active day.
+func (srv *server) reactivateEmployee(w http.ResponseWriter, r *http.Request) {
+	reject := func(msg string) { srv.showEmployees(w, r, http.StatusBadRequest, msg) }
+	emps, err := srv.st.Employees(0)
+	if err != nil {
+		serverError(w, "employees", err)
+		return
+	}
+	id := r.PathValue("id")
+	emp, ok := employeeByID(emps, id)
+	if !ok {
+		reject("unknown employee")
+		return
+	}
+	if emp.ActiveUntil == "" {
+		reject(id + " is not deactivated")
+		return
+	}
+	if err := srv.st.ReactivateEmployee(id); err != nil {
+		serverError(w, "reactivate employee", err)
 		return
 	}
 	http.Redirect(w, r, "/employees", http.StatusSeeOther)
@@ -247,8 +295,10 @@ func (srv *server) saveOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	org := Org{Name: strings.TrimSpace(r.PostFormValue("name")), Kind: r.PostFormValue("kind")}
+	var cur Org // the organisation being updated
 	if v := r.PostFormValue("id"); v != "" {
-		cur, ok := orgByID(orgs, v)
+		var ok bool
+		cur, ok = orgByID(orgs, v)
 		if !ok {
 			reject("unknown organisation")
 			return
@@ -265,6 +315,10 @@ func (srv *server) saveOrg(w http.ResponseWriter, r *http.Request) {
 	}
 	if org.Kind != "fixed" && org.Kind != "roster" {
 		reject("kind must be fixed or roster")
+		return
+	}
+	if org.ID != 0 && org.Kind != cur.Kind { // it would re-evaluate every past day
+		reject("an organisation's kind can't be changed")
 		return
 	}
 	if org.GraceMinutes, err = strconv.Atoi(r.PostFormValue("grace")); err != nil || org.GraceMinutes < 0 || org.GraceMinutes > 240 {
@@ -353,6 +407,12 @@ type leaveRow struct {
 	Name string // the employee's name
 }
 
+// leaveWindow is the range of days the leave page lists; leave must overlap it to be seen and deleted.
+func (srv *server) leaveWindow() (from, to time.Time) {
+	today := srv.today()
+	return today.AddDate(0, 0, -90), today.AddDate(0, 0, 365)
+}
+
 // showLeave lists the leave overlapping the 90 days before today through the next 365 days.
 func (srv *server) showLeave(w http.ResponseWriter, r *http.Request, status int, msg string) {
 	emps, err := srv.st.Employees(0)
@@ -360,8 +420,7 @@ func (srv *server) showLeave(w http.ResponseWriter, r *http.Request, status int,
 		serverError(w, "employees", err)
 		return
 	}
-	today := srv.today()
-	leaves, err := srv.st.Leaves(today.AddDate(0, 0, -90), today.AddDate(0, 0, 365))
+	leaves, err := srv.st.Leaves(srv.leaveWindow())
 	if err != nil {
 		serverError(w, "leave", err)
 		return
@@ -407,6 +466,10 @@ func (srv *server) addLeave(w http.ResponseWriter, r *http.Request) {
 		reject("leave cannot end before it starts")
 		return
 	}
+	if lo, hi := srv.leaveWindow(); to.Before(lo) || from.After(hi) {
+		reject(fmt.Sprintf("leave must fall at least partly between %s and %s, the days this page lists", lo.Format(dateFmt), hi.Format(dateFmt)))
+		return
+	}
 	if err := srv.st.AddLeave(emp, from, to); err != nil {
 		serverError(w, "add leave", err)
 		return
@@ -436,10 +499,14 @@ type holidaysPage struct {
 	Days  []string // dateFmt, ascending
 }
 
-// showHolidays lists the holidays from 1 January last year through 31 December next year.
-func (srv *server) showHolidays(w http.ResponseWriter, r *http.Request, status int, msg string) {
+// holidayWindow is the range of days the holidays page lists: 1 January last year through 31 December next year.
+func (srv *server) holidayWindow() (from, to time.Time) {
 	year := srv.today().Year()
-	days, err := srv.st.Holidays(time.Date(year-1, 1, 1, 0, 0, 0, 0, srv.loc), time.Date(year+1, 12, 31, 0, 0, 0, 0, srv.loc))
+	return time.Date(year-1, 1, 1, 0, 0, 0, 0, srv.loc), time.Date(year+1, 12, 31, 0, 0, 0, 0, srv.loc)
+}
+
+func (srv *server) showHolidays(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	days, err := srv.st.Holidays(srv.holidayWindow())
 	if err != nil {
 		serverError(w, "holidays", err)
 		return
@@ -457,6 +524,10 @@ func (srv *server) addHoliday(w http.ResponseWriter, r *http.Request) {
 	day, err := time.ParseInLocation(dateFmt, r.PostFormValue("day"), srv.loc)
 	if err != nil {
 		reject("bad day")
+		return
+	}
+	if lo, hi := srv.holidayWindow(); day.Before(lo) || day.After(hi) {
+		reject(fmt.Sprintf("a holiday must be between %s and %s, the days this page lists", lo.Format(dateFmt), hi.Format(dateFmt)))
 		return
 	}
 	have, err := srv.st.Holidays(day, day)
@@ -544,7 +615,7 @@ func newRosterCell(emp Employee, day string, shifts []Shift, stored RosterDay) r
 		c.Options = append(c.Options, rosterOption{Value: -1, Label: shiftLabel(stored.Shift, stored.Start, stored.End) + " (old times)", Selected: true, Disabled: true})
 	}
 	if at, err := time.Parse(stampFmt, stored.ChangedAt); err == nil {
-		c.Title = "changed by " + stored.ChangedBy + " at " + clock(at)
+		c.Title = "changed by " + stored.ChangedBy + " on " + at.Format(dateFmt) + " at " + clock(at)
 	}
 	return c
 }

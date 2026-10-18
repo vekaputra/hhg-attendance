@@ -80,10 +80,14 @@ func TestAdminPages(t *testing.T) {
 		t.Fatalf("Employees(cafe) = %v, want [%v]", got, want)
 	}
 	page := get("/employees")
-	wantAll(t, page, "HHG0020", "Rina", "Cafe", "2026-10-18", `action="/employees/HHG0020/deactivate"`,
+	wantAll(t, page, "HHG0020", "Rina", "Cafe", "2026-10-18", `action="/employees/HHG0020/deactivate"`, `action="/employees/HHG0020"`,
+		`hx-confirm="Deactivate HHG0020 Rina? Their past days stay in the reports."`,
 		"2026-10-10", `href="/employees"`, `href="/orgs"`, `href="/leave"`, `href="/holidays"`)
 	if strings.Contains(page, "/employees/HHG0004/deactivate") {
 		t.Error("a deactivated employee still has a deactivate button")
+	}
+	if !strings.Contains(page, `action="/employees/HHG0004/reactivate"`) || strings.Contains(page, "/employees/HHG0002/reactivate") {
+		t.Error("only a deactivated employee should have a reactivate button")
 	}
 	redirects(post("/employees/HHG0020/deactivate", nil), "/employees")
 	want.ActiveUntil = "2026-10-18"
@@ -99,8 +103,12 @@ func TestAdminPages(t *testing.T) {
 	if got := mustGet(st.Orgs())[0]; got != wantOffice {
 		t.Errorf("Orgs()[0] = %+v, want %+v", got, wantOffice)
 	}
-	wantAll(t, get("/orgs"), "Office", "Cafe", `action="/orgs/`+cafeID+`/shifts"`,
+	orgsPage := get("/orgs")
+	wantAll(t, orgsPage, "Office", "Cafe", `action="/orgs/`+cafeID+`/shifts"`,
 		`name="weekdays" value="3" checked`, `name="weekdays" value="2">`)
+	if n := strings.Count(orgsPage, `<select name="kind">`); n != 1 {
+		t.Errorf("/orgs has %d kind selects, want 1 (only the new organisation's)", n)
+	}
 
 	// A new roster org keeps no times or weekdays.
 	redirects(post("/orgs", formOf("id", "", "name", "Kitchen", "kind", "roster", "grace", "5", "start", "08:00", "end", "17:00", "weekdays", "1")), "/orgs")
@@ -137,6 +145,10 @@ func TestAdminPages(t *testing.T) {
 		t.Errorf("Leaves after delete = %+v, want none", got)
 	}
 
+	// A leave that starts before the list window but reaches into it is still listed.
+	redirects(post("/leave", formOf("emp", "HHG0002", "from", "2026-06-01", "to", "2026-12-31")), "/leave")
+	wantAll(t, get("/leave"), "2026-06-01", "2026-12-31")
+
 	// Holidays: add, listed with a delete button, delete twice.
 	redirects(post("/holidays", formOf("day", "2026-12-25")), "/holidays")
 	wantAll(t, get("/holidays"), "2026-12-25", `action="/holidays/2026-12-25/delete"`)
@@ -150,6 +162,54 @@ func TestAdminPages(t *testing.T) {
 		if w := getWithCookies(h, path); w.Code != 303 || w.Header().Get("Location") != "/login" {
 			t.Errorf("GET %s without a session = %d to %q, want 303 to /login", path, w.Code, w.Header().Get("Location"))
 		}
+	}
+}
+
+// A window may not start before the attendance day does, nor run overnight past its end, or its taps split across two days.
+func TestTimeWindow(t *testing.T) {
+	for _, c := range []struct {
+		start, end string
+		ok         bool
+	}{
+		{"08:30", "17:30", true},
+		{"03:00", "11:00", true},
+		{"15:00", "01:00", true},
+		{"15:00", "03:00", true},
+		{"22:00", "06:00", false},
+		{"22:00", "03:01", false},
+		{"02:00", "10:00", false},
+		{"00:00", "08:00", false},
+	} {
+		if _, _, err := timeWindow(c.start, c.end); (err == nil) != c.ok {
+			t.Errorf("timeWindow(%s, %s) error = %v, want ok = %v", c.start, c.end, err, c.ok)
+		}
+	}
+}
+
+func TestEditEmployee(t *testing.T) {
+	h, session, st, office, cafe := adminFixture(t)
+	post := func(path string, f url.Values) *httptest.ResponseRecorder { return postForm(h, path, f, session) }
+
+	// Moving a part-timer to Cafe keeps their ID and active period and trims the name.
+	w := post("/employees/HHG0002", formOf("name", "  Budi S  ", "org", strconv.FormatInt(cafe.ID, 10)))
+	if w.Code != 303 || w.Header().Get("Location") != "/employees" {
+		t.Fatalf("edit = %d to %q, want 303 to /employees", w.Code, w.Header().Get("Location"))
+	}
+	want := Employee{ID: "HHG0002", Name: "Budi S", OrgID: cafe.ID, ActiveFrom: "2026-10-01"}
+	if got := mustGet(st.Employees(cafe.ID)); !slices.Equal(got, []Employee{want}) {
+		t.Errorf("Employees(cafe) = %v, want [%v]", got, want)
+	}
+	if got := mustGet(st.Employees(office.ID)); len(got) != 1 || got[0].ID != "HHG0004" {
+		t.Errorf("Employees(office) = %v, want only HHG0004", got)
+	}
+
+	// Reactivating clears the last active day, and only that.
+	if w := post("/employees/HHG0004/reactivate", nil); w.Code != 303 || w.Header().Get("Location") != "/employees" {
+		t.Fatalf("reactivate = %d to %q, want 303 to /employees", w.Code, w.Header().Get("Location"))
+	}
+	want = Employee{ID: "HHG0004", Name: "Dewi", OrgID: office.ID, ActiveFrom: "2026-10-01"}
+	if got := mustGet(st.Employees(office.ID)); !slices.Equal(got, []Employee{want}) {
+		t.Errorf("Employees(office) = %v, want [%v]", got, want)
 	}
 }
 
@@ -200,18 +260,28 @@ func TestAdminRejectsBadInput(t *testing.T) {
 		{"/employees", formOf("id", "HHG0020", "name", "Rina", "org", cafeID, "pad", strings.Repeat("x", maxForm)), "bad employee ID"}, // body over the cap is not parsed
 		{"/employees/NOPE/deactivate", nil, "unknown employee"},
 		{"/employees/HHG0004/deactivate", nil, "already deactivated"},
+		{"/employees/NOPE", formOf("name", "Rina", "org", cafeID), "unknown employee"},
+		{"/employees/HHG0002", formOf("name", "  ", "org", cafeID), nameMsg},
+		{"/employees/HHG0002", formOf("name", long, "org", cafeID), nameMsg},
+		{"/employees/HHG0002", formOf("name", "Rina", "org", "999"), "unknown organisation"},
+		{"/employees/HHG0002", formOf("name", "Rina", "org", "x"), "unknown organisation"},
+		{"/employees/NOPE/reactivate", nil, "unknown employee"},
+		{"/employees/HHG0002/reactivate", nil, "not deactivated"},
 
 		{"/orgs", fixed("id", "999"), "unknown organisation"},
 		{"/orgs", fixed("name", " "), nameMsg},
 		{"/orgs", fixed("name", "Cafe"), "already exists"},
 		{"/orgs", fixed("id", "", "name", "Office"), "already exists"},
 		{"/orgs", fixed("kind", "daily"), "kind must be fixed or roster"},
+		{"/orgs", fixed("kind", "roster"), "kind can&#39;t be changed"},
 		{"/orgs", fixed("grace", "abc"), "grace must be 0 to 240"},
 		{"/orgs", fixed("grace", "-1"), "grace must be 0 to 240"},
 		{"/orgs", fixed("grace", "241"), "grace must be 0 to 240"},
 		{"/orgs", fixed("start", "25:00"), "bad start time"},
 		{"/orgs", fixed("end", "5pm"), "bad end time"},
 		{"/orgs", fixed("end", "08:30"), "start and end must differ"},
+		{"/orgs", fixed("start", "22:00", "end", "06:00"), "must end by 03:00"},
+		{"/orgs", fixed("start", "02:00", "end", "10:00"), "start must be 03:00 or later"},
 		{"/orgs", fixed("weekdays", ""), "tick at least one weekday"},
 
 		{"/orgs/" + officeID + "/shifts", formOf("name", "5", "start", "08:00", "end", "14:00"), "only roster organisations"},
@@ -219,6 +289,8 @@ func TestAdminRejectsBadInput(t *testing.T) {
 		{"/orgs/" + cafeID + "/shifts", formOf("name", "", "start", "08:00", "end", "14:00"), nameMsg},
 		{"/orgs/" + cafeID + "/shifts", formOf("name", "5", "start", "8am", "end", "14:00"), "bad start time"},
 		{"/orgs/" + cafeID + "/shifts", formOf("name", "5", "start", "08:00", "end", "08:00"), "start and end must differ"},
+		{"/orgs/" + cafeID + "/shifts", formOf("name", "5", "start", "22:00", "end", "06:00"), "must end by 03:00"},
+		{"/orgs/" + cafeID + "/shifts", formOf("name", "5", "start", "02:00", "end", "10:00"), "start must be 03:00 or later"},
 		{"/orgs/" + cafeID + "/shifts", formOf("shift_id", "999", "name", "5", "start", "08:00", "end", "14:00"), "unknown shift"},
 		{"/orgs/" + cafeID + "/shifts", formOf("shift_id", "x", "name", "5", "start", "08:00", "end", "14:00"), "unknown shift"},
 		{"/orgs/" + kitchenID + "/shifts", formOf("shift_id", cafeShift, "name", "5", "start", "08:00", "end", "14:00"), "unknown shift"}, // Cafe's shift
@@ -227,9 +299,13 @@ func TestAdminRejectsBadInput(t *testing.T) {
 		{"/leave", formOf("emp", "HHG0002", "from", "2026-10-2", "to", "2026-10-22"), "bad from date"},
 		{"/leave", formOf("emp", "HHG0002", "from", "2026-10-20", "to", ""), "bad to date"},
 		{"/leave", formOf("emp", "HHG0002", "from", "2026-10-22", "to", "2026-10-20"), "cannot end before it starts"},
+		{"/leave", formOf("emp", "HHG0002", "from", "2026-01-01", "to", "2026-01-05"), "between 2026-07-20 and 2027-10-18"}, // before the list window
+		{"/leave", formOf("emp", "HHG0002", "from", "2027-11-01", "to", "2027-11-05"), "between 2026-07-20 and 2027-10-18"}, // after it
 
 		{"/holidays", formOf("day", "25/12/2026"), "bad day"},
 		{"/holidays", formOf("day", "2026-12-25"), "already a holiday"},
+		{"/holidays", formOf("day", "2024-12-31"), "between 2025-01-01 and 2027-12-31"},
+		{"/holidays", formOf("day", "2028-01-01"), "between 2025-01-01 and 2027-12-31"},
 	} {
 		w := postForm(h, c.path, c.form, session)
 		if w.Code != 400 {
@@ -274,7 +350,7 @@ func TestRosterPage(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("POST /roster = %d, want 200: %s", w.Code, w.Body)
 	}
-	wantAll(t, w.Body.String(), `value="`+id(shift2.ID)+`" selected`, `title="changed by ana at 12:00"`)
+	wantAll(t, w.Body.String(), `value="`+id(shift2.ID)+`" selected`, `title="changed by ana on 2026-10-18 at 12:00"`)
 	if got := stored(); got.Start != "11:00" || got.ChangedBy != "ana" {
 		t.Fatalf("stored day = %+v, want shift starting 11:00 changed by ana", got)
 	}
@@ -383,5 +459,5 @@ func TestRosterRejectsBadInput(t *testing.T) {
 
 	// The cell that comes back still shows what is stored.
 	w := postForm(h, "/roster", formOf("emp", "HHG0012", "day", "2026-10-19", "shift", "x"), session)
-	wantAll(t, w.Body.String(), `value="`+sid+`" selected`, `title="changed by bo at 09:00"`)
+	wantAll(t, w.Body.String(), `value="`+sid+`" selected`, `title="changed by bo on 2026-10-17 at 09:00"`)
 }

@@ -127,11 +127,15 @@ func evaluate(d Day, grace time.Duration, now time.Time) Result {
 	}
 	hasIn, hasOut := !r.In.IsZero(), !r.Out.IsZero()
 
-	switch {
-	case hasIn && !hasOut:
-		r.Flags = append(r.Flags, FlagNoCheckOut)
-	case hasOut && !hasIn:
-		r.Flags = append(r.Flags, FlagNoCheckIn)
+	// A missing tap is only a flag once the day is over; until then the person may still be working.
+	y, m, dd := d.Date.Date()
+	if now.After(time.Date(y, m, dd+1, dayStartHour, 0, 0, 0, d.Date.Location())) {
+		switch {
+		case hasIn && !hasOut:
+			r.Flags = append(r.Flags, FlagNoCheckOut)
+		case hasOut && !hasIn:
+			r.Flags = append(r.Flags, FlagNoCheckIn)
+		}
 	}
 
 	switch {
@@ -161,7 +165,8 @@ func evaluate(d Day, grace time.Duration, now time.Time) Result {
 		r.Flags = append(r.Flags, FlagManagerEdit)
 	}
 
-	if hasIn && hasOut {
+	// A correction can put the check-in after a tap-derived check-out; that is no hours, not negative ones.
+	if hasIn && hasOut && r.Out.After(r.In) {
 		r.HasHours = true
 		r.Actual = r.Out.Sub(r.In)
 		if w := d.Window; w != nil {

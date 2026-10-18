@@ -128,6 +128,8 @@ func TestEvaluate(t *testing.T) {
 			"", d + "16:00:00", StatusPresent, 0, []Flag{FlagNoCheckIn}, 0, 0},
 		{"in only", Day{Window: &office, Taps: stamps(d + "08:35:00")}, "",
 			d + "08:35:00", "", StatusOnTime, 0, []Flag{FlagNoCheckOut}, 0, 0},
+		{"in only during the day", Day{Date: date, Window: &office, Taps: stamps(d + "08:25:00")}, d + "10:00:00",
+			d + "08:25:00", "", StatusOnTime, 0, nil, 0, 0},
 		{"leave", Day{Leave: true, Taps: stamps(d+"09:00:00", d+"17:00:00")}, "",
 			d + "09:00:00", d + "17:00:00", StatusLeave, 0, nil, 8 * time.Hour, 0},
 		{"holiday", Day{Holiday: true}, "", "", "", StatusHoliday, 0, nil, 0, 0},
@@ -139,6 +141,8 @@ func TestEvaluate(t *testing.T) {
 			d + "14:40:00", "2026-10-06 01:00:00", StatusOnTime, 0, nil, 10*time.Hour + 20*time.Minute, 7 * time.Hour},
 		{"fix in over tap out", Day{Window: &office, Taps: stamps(d + "17:35:00"), Fix: &Fix{In: at(d + "08:30:00")}}, "",
 			d + "08:30:00", d + "17:35:00", StatusOnTime, 0, []Flag{FlagManagerEdit}, 9*time.Hour + 5*time.Minute, 9 * time.Hour},
+		{"fix in after tap out", Day{Window: &office, Taps: stamps(d+"08:00:00", d+"17:00:00"), Fix: &Fix{In: at(d + "18:00:00")}}, "",
+			d + "18:00:00", d + "17:00:00", StatusLate, 9*time.Hour + 30*time.Minute, []Flag{FlagManagerEdit}, 0, 0},
 		{"fix without taps", Day{Window: &office, Fix: &Fix{In: at(d + "08:30:00"), Out: at(d + "17:30:00")}}, d + "20:00:00",
 			d + "08:30:00", d + "17:30:00", StatusOnTime, 0, []Flag{FlagManagerEdit}, 9 * time.Hour, 9 * time.Hour},
 	}

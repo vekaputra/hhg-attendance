@@ -13,13 +13,20 @@
 </section>
 <h2>Employees</h2>
 {{if .Employees}}<table class="data">
-<thead><tr><th>ID</th><th>Name</th><th>Organisation</th><th>Active from</th><th>Active until</th><th></th></tr></thead>
+<thead><tr><th>ID</th><th>Name and organisation</th><th>Active from</th><th>Active until</th><th></th></tr></thead>
 <tbody>
-{{range .Employees}}<tr><td>{{.ID}}</td><td>{{.Name}}</td><td>{{.Org}}</td><td>{{.ActiveFrom}}</td><td>{{.ActiveUntil}}</td>
-<td>{{if not .ActiveUntil}}<form method="post" action="/employees/{{.ID}}/deactivate"><button type="submit">Deactivate</button></form>{{end}}</td></tr>
+{{range .Employees}}{{$org := .OrgID}}<tr><td>{{.ID}}</td>
+<td><form method="post" action="/employees/{{.ID}}">
+<input name="name" value="{{.Name}}" required maxlength="100" aria-label="Name of {{.ID}}">
+<select name="org" aria-label="Organisation of {{.ID}}">{{range $.Orgs}}<option value="{{.ID}}"{{if eq .ID $org}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+<button type="submit">Save</button>
+</form></td>
+<td>{{.ActiveFrom}}</td><td>{{.ActiveUntil}}</td>
+<td>{{if .ActiveUntil}}<form method="post" action="/employees/{{.ID}}/reactivate"><button type="submit">Reactivate</button></form>
+{{else}}<form method="post" action="/employees/{{.ID}}/deactivate" hx-confirm="Deactivate {{.ID}} {{.Name}}? Their past days stay in the reports."><button type="submit">Deactivate</button></form>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
-<p class="note">Deactivating makes today the last active day; past days stay in the reports.</p>
+<p class="note">Deactivating makes today the last active day; past days stay in the reports. Reactivating clears it, so the days since count again. Changing an organisation applies to all of the employee's days.</p>
 {{else}}<p>No employees yet.</p>
 {{end}}
 {{end}}

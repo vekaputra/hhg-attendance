@@ -58,6 +58,18 @@ func (s *Store) DeactivateEmployee(id string, day time.Time) error {
 	return err
 }
 
+// UpdateEmployee changes the employee's name and organisation. The organisation applies to all of their days.
+func (s *Store) UpdateEmployee(id, name string, orgID int64) error {
+	_, err := s.db.Exec(`UPDATE employees SET name = ?, org_id = ? WHERE id = ?`, name, orgID, id)
+	return err
+}
+
+// ReactivateEmployee clears the employee's last active day.
+func (s *Store) ReactivateEmployee(id string) error {
+	_, err := s.db.Exec(`UPDATE employees SET active_until = NULL WHERE id = ?`, id)
+	return err
+}
+
 // Employees returns the organisation's employees (all when orgID is 0) ordered by ID.
 func (s *Store) Employees(orgID int64) ([]Employee, error) {
 	rows, err := s.db.Query(`SELECT id, name, org_id, active_from, COALESCE(active_until, '') FROM employees
