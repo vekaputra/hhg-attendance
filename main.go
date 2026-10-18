@@ -1,17 +1,21 @@
-// Command hhg-attendance answers Hikvision EHome 4.0 registration over UDP and
-// logs what the device sends (ehome.go).
+// Command hhg-attendance records a Hikvision EHome 4.0 device's taps over UDP (ehome.go) and serves the
+// attendance web app (web.go). "hhg-attendance adduser <name>" sets a login password, read from stdin.
 package main
 
 import (
 	"io"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 )
 
 // port is the EHome server port configured on the device.
 var port = "7600"
+
+// webAddr is where the web app listens; the reverse proxy in front of it handles HTTPS.
+var webAddr = ":8080"
 
 // Business timezone, e.g. "Asia/Jakarta". Fill this in.
 var timezone = ""
@@ -33,13 +37,26 @@ func main() {
 		slog.Error("set a valid business timezone in main.go", "timezone", timezone, "err", err)
 		os.Exit(1)
 	}
-	store, err := OpenStore(dbPath, loc)
+	st, err := OpenStore(dbPath, loc)
 	if err != nil {
 		slog.Error("open store", "path", dbPath, "err", err)
 		os.Exit(1)
 	}
-	defer store.Close()
 
-	slog.Error("ehome listener stopped", "err", listenEHome(":"+port, store))
+	if len(os.Args) == 3 && os.Args[1] == "adduser" {
+		if err := runAddUser(st, os.Args[2], os.Stdin); err != nil {
+			slog.Error("add user", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("user saved", "name", os.Args[2])
+		os.Exit(0)
+	}
+
+	go func() {
+		slog.Error("ehome listener stopped", "err", listenEHome(":"+port, st))
+		os.Exit(1)
+	}()
+	web := &http.Server{Addr: webAddr, Handler: newServer(st, loc, time.Now), ReadHeaderTimeout: 10 * time.Second}
+	slog.Error("web server stopped", "err", web.ListenAndServe())
 	os.Exit(1)
 }
