@@ -38,6 +38,15 @@ input, button { font: inherit; padding: 6px 10px; }
 .flag { display: block; font-size: 11px; color: #8a5a00; }
 .total { white-space: nowrap; font-weight: 600; }
 
+/* person page */
+.tot { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.tot div { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+.tot b { display: block; font-size: 16px; }
+.person td > span { display: block; }
+.note { color: #666; font-size: 12px; }
+.fix form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
+.fix label { display: grid; gap: 4px; }
+
 [data-status="late"] { background: #fff1cc; color: #8a5a00; }
 [data-status="absent"] { background: #ffd9d9; color: #a30000; }
 [data-status="leave"], [data-status="holiday"] { background: #e3f4e6; color: #1f6b2e; }

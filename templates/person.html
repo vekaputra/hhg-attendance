@@ -1,0 +1,49 @@
+{{define "content"}}
+<div class="bar">
+<form method="get" action="/person">
+<label>Employee <select name="emp">{{range .Employees}}<option value="{{.ID}}"{{if eq .ID $.Emp.ID}} selected{{end}}>{{.ID}} {{.Name}}</option>{{end}}</select></label>
+<input type="hidden" name="month" value="{{.Month}}">
+<button type="submit">Show</button>
+</form>
+{{with .Row}}<span>{{.Org.Name}}</span>{{end}}
+{{if .Emp.ID}}<div class="pager"><a href="{{.Prev.URL}}">‹ {{.Prev.Label}}</a> <b>{{.Title}}</b> <a href="{{.Next.URL}}">{{.Next.Label}} ›</a></div>{{end}}
+</div>
+{{if not .Employees}}<p>No employees yet.</p>
+{{else if not .Row}}<p>{{.Emp.ID}} {{.Emp.Name}} was not active in {{.Title}}.</p>
+{{else}}{{with .Row}}
+<div class="tot">
+<div>Actual hours<b>{{hours .Actual}}</b></div>
+<div>Within shift<b>{{hours .InShift}}</b></div>
+<div>Days with hours<b>{{$.DaysWithHours}}</b></div>
+<div>Late<b>{{.Late}}</b></div>
+<div>Absent<b>{{.Absent}}</b></div>
+<div>Missing tap<b>{{.Flagged}}</b></div>
+</div>
+<table class="cal month person">
+<thead><tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr></thead>
+<tbody>
+{{range $.Weeks}}<tr>
+{{range .}}{{if .}}<td data-status="{{.Status}}"><span class="num"><span class="wd">{{.Date.Format "Mon"}} </span>{{.Date.Day}}</span>
+{{with .Window}}<span class="shift">{{with .Shift}}shift {{.}} · {{end}}{{clock .Start}}–{{clock .End}}</span>{{end}}
+{{if not (and .In.IsZero .Out.IsZero)}}<span>{{if .In.IsZero}}?{{else}}{{clock .In}}{{end}} → {{if .Out.IsZero}}?{{else}}{{clock .Out}}{{end}}</span>{{end}}
+<span>{{if eq .Status "late"}}{{mins .LateBy}} late{{else}}{{.Status}}{{end}}</span>
+{{range .Flags}}<span class="flag">{{.}}</span>{{end}}
+{{if .HasHours}}<span><b>{{hours .Actual}}</b> / {{hours .InShift}}</span>{{end}}</td>
+{{else}}<td class="blank"></td>
+{{end}}{{end}}</tr>
+{{end}}</tbody>
+</table>
+<p class="note">Each worked day shows actual hours (bold) / hours within the shift. Days with a missing tap show no hours until they are corrected.</p>
+<section class="fix">
+<h2>Correct a day</h2>
+<form method="post" action="/corrections">
+<input type="hidden" name="emp" value="{{$.Emp.ID}}">
+<label>Day <input type="date" name="day" required></label>
+<label>Check-in <input type="time" name="in"></label>
+<label>Check-out <input type="time" name="out"></label>
+<button type="submit">Save</button>
+</form>
+<p class="note">A time left empty keeps the tapped one; leave both empty to remove the correction. Times before 03:00 belong to the next morning.</p>
+</section>
+{{end}}{{end}}
+{{end}}
