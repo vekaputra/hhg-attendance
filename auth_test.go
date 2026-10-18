@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -71,6 +72,38 @@ func TestUserPassword(t *testing.T) {
 	}
 	check("ana", "correct horse", false)
 	check("ana", "another password", true)
+
+	for _, name := range []string{"", "Ana", "a b", strings.Repeat("a", 33)} {
+		if err := st.SetUser(name, "correct horse"); err == nil {
+			t.Errorf("SetUser accepted username %q", name)
+		}
+	}
+}
+
+func TestUserResetRevokesSessions(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	if err := st.SetUser("ana", "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	anaToken, err := st.NewSession("ana", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobToken, err := st.NewSession("bob", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.SetUser("ana", "another password"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.SessionUser(anaToken, now); err != nil || got != "" {
+		t.Errorf("session from before the reset = %q, %v; want revoked", got, err)
+	}
+	if got, err := st.SessionUser(bobToken, now); err != nil || got != "bob" {
+		t.Errorf("other user's session = %q, %v; want untouched", got, err)
+	}
 }
 
 func TestUserAddFromInput(t *testing.T) {
@@ -146,12 +179,76 @@ func TestLoginLockout(t *testing.T) {
 		}
 		now = now.Add(time.Second)
 	}
-	if w := postCreds(post, "/login", "ana", "correct horse"); w.Code != 401 {
-		t.Errorf("locked user with correct password = %d, want 401", w.Code)
+	// Same status and message as a wrong password, so a lock doesn't reveal the account exists.
+	w := postCreds(post, "/login", "ana", "correct horse")
+	if w.Code != 401 || !strings.Contains(w.Body.String(), "Wrong username or password") {
+		t.Errorf("locked user with correct password = %d %q, want 401 with the wrong-password message", w.Code, w.Body)
 	}
 	now = now.Add(lockout + time.Minute)
 	if w := postCreds(post, "/login", "ana", "correct horse"); w.Code != 303 {
 		t.Errorf("after lockout = %d, want 303", w.Code)
+	}
+}
+
+func TestLoginParallelAttemptsAreLimited(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.SetUser("ana", "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	lim := &limiter{}
+	_, post, _ := loginHandlers(st, lim, func() time.Time { return now }, loginTmpl)
+
+	codes := make([]int, 20)
+	var wg sync.WaitGroup
+	for i := range codes {
+		wg.Go(func() { codes[i] = postCreds(post, "/login", "ana", "wrong").Code })
+	}
+	wg.Wait()
+
+	for i, c := range codes {
+		if c != 401 {
+			t.Errorf("request %d = %d, want 401", i, c)
+		}
+	}
+	// An attempt is recorded before its slow password check, so recorded attempts equal checks made.
+	if n := len(lim.fails["ana"]); n != maxFailures {
+		t.Errorf("%d password checks for %d parallel wrong attempts, want %d", n, len(codes), maxFailures)
+	}
+}
+
+func TestLoginRejectsMalformedWithoutTouchingState(t *testing.T) {
+	st := newTestStore(t)
+	st.Close() // a database call would now fail with a 500
+	lim := &limiter{}
+	_, post, _ := loginHandlers(st, lim, time.Now, loginTmpl)
+
+	for _, c := range []struct{ name, user, pass string }{
+		{"empty", "", "x"},
+		{"uppercase", "ANA", "x"},
+		{"space", "a b", "x"},
+		{"too long", strings.Repeat("a", 33), "x"},
+		{"body over limit", "ana", strings.Repeat("x", 5<<10)},
+	} {
+		w := postCreds(post, "/login", c.user, c.pass)
+		if w.Code != 401 || !strings.Contains(w.Body.String(), "Wrong username or password") {
+			t.Errorf("%s: %d %q, want 401 with the wrong-password message", c.name, w.Code, w.Body)
+		}
+	}
+	if len(lim.fails) != 0 {
+		t.Errorf("limiter recorded %v, want nothing", lim.fails)
+	}
+}
+
+func TestLoginLimiterSweepsStaleNames(t *testing.T) {
+	lim := &limiter{}
+	t0 := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	for i := range 1001 {
+		lim.try(fmt.Sprint("user", i), t0)
+	}
+	lim.try("ana", t0.Add(lockout+time.Second))
+	if len(lim.fails) != 1 {
+		t.Errorf("%d names tracked after the sweep, want only ana", len(lim.fails))
 	}
 }
 

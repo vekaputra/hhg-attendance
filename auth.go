@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ const (
 	wrongLogin     = "Wrong username or password"
 )
 
+var usernameRE = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
 // dummySalt lets CheckUser spend a derivation on unknown users, so timing doesn't reveal which exist.
 var dummySalt = make([]byte, 16)
 
@@ -39,8 +42,11 @@ func derive(password string, salt []byte) ([]byte, error) {
 	return pbkdf2.Key(sha256.New, password, salt, pbkdf2Iter, 32)
 }
 
-// SetUser creates the user or resets their password.
+// SetUser creates the user or resets their password, ending all their sessions.
 func (s *Store) SetUser(name, password string) error {
+	if !usernameRE.MatchString(name) {
+		return fmt.Errorf("username must match %s", usernameRE)
+	}
 	if utf8.RuneCountInString(password) < minPasswordLen {
 		return fmt.Errorf("password must be at least %d characters", minPasswordLen)
 	}
@@ -52,10 +58,21 @@ func (s *Store) SetUser(name, password string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO users (name, salt, hash) VALUES (?, ?, ?)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO users (name, salt, hash) VALUES (?, ?, ?)
 		ON CONFLICT (name) DO UPDATE SET salt = excluded.salt, hash = excluded.hash`,
-		name, hex.EncodeToString(salt), hex.EncodeToString(hash))
-	return err
+		name, hex.EncodeToString(salt), hex.EncodeToString(hash)); err != nil {
+		return err
+	}
+	// A reset must also cut off whoever holds a cookie from the old password.
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_name = ?`, name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CheckUser reports whether password matches the user's, in constant time.
@@ -117,37 +134,41 @@ func (s *Store) DeleteSession(token string) error {
 	return err
 }
 
-// limiter locks a username out after maxFailures failed logins within lockout. The zero value is ready to use.
+// limiter locks a username out after maxFailures login attempts within lockout. The zero value is ready to use.
 type limiter struct {
 	mu    sync.Mutex
 	fails map[string][]time.Time
 }
 
-// locked reports whether user has maxFailures failures within lockout, dropping older ones.
-func (l *limiter) locked(user string, now time.Time) bool {
+// try counts a login attempt for user and reports whether it may proceed. It records the attempt
+// itself, before the caller's slow password check, so parallel requests can't all pass a separate
+// "locked" test. A successful login should call reset.
+func (l *limiter) try(user string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.fails == nil {
+		l.fails = map[string][]time.Time{}
+	}
+	// Names are only pruned when retried, so drop stale ones once the map is big.
+	if len(l.fails) > 1000 {
+		for u, ts := range l.fails {
+			if now.Sub(ts[len(ts)-1]) >= lockout {
+				delete(l.fails, u)
+			}
+		}
+	}
 	recent := l.fails[user][:0]
 	for _, t := range l.fails[user] {
 		if now.Sub(t) < lockout {
 			recent = append(recent, t)
 		}
 	}
-	if len(recent) == 0 {
-		delete(l.fails, user)
-	} else {
+	if len(recent) >= maxFailures {
 		l.fails[user] = recent
+		return false
 	}
-	return len(recent) >= maxFailures
-}
-
-func (l *limiter) fail(user string, now time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.fails == nil {
-		l.fails = map[string][]time.Time{}
-	}
-	l.fails[user] = append(l.fails[user], now)
+	l.fails[user] = append(recent, now)
+	return true
 }
 
 func (l *limiter) reset(user string) {
@@ -179,9 +200,11 @@ func loginHandlers(st *Store, lim *limiter, now func() time.Time, tmpl *template
 	}
 	get = func(w http.ResponseWriter, r *http.Request) { render(w, http.StatusOK, "") }
 	post = func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 		user, pass := r.PostFormValue("username"), r.PostFormValue("password")
 		t := now()
-		if lim.locked(user, t) {
+		// Malformed names never reach the limiter or the database, so attackers can't grow either.
+		if !usernameRE.MatchString(user) || !lim.try(user, t) {
 			render(w, http.StatusUnauthorized, wrongLogin)
 			return
 		}
@@ -191,7 +214,6 @@ func loginHandlers(st *Store, lim *limiter, now func() time.Time, tmpl *template
 			return
 		}
 		if !ok {
-			lim.fail(user, t)
 			render(w, http.StatusUnauthorized, wrongLogin)
 			return
 		}
