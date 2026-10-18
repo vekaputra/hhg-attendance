@@ -50,7 +50,7 @@ With the app stopped (so no tap lands in the old file), run the new binary once 
     ATTENDANCE_DSN='...' ./hhg-attendance copy-db attendance.db
 
 It copies every table with the same IDs, in one transaction, and logs the row count per table. Sessions are not
-copied, so everyone logs in again. It refuses unless the MySQL database has no employees, taps, users or holidays,
+copied, so everyone logs in again. It refuses unless the MySQL database has no employees, taps, events, users or holidays,
 so run it before the first start on MySQL. If the app already ran there, the seeded organisations and shifts and
 any device contacts it recorded are replaced by the copy. If it fails, nothing is copied: fix the cause and run it
 again. The SQLite file is only read; keep it until you have checked the app.
