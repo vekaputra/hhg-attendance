@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"slices"
+	"time"
 )
 
 // allowedDeviceIDs are the Device IDs (from each device's platform access
@@ -42,7 +43,7 @@ type ppvsp struct {
 	} `xml:"Params"`
 }
 
-func listenEHome(addr string) error {
+func listenEHome(addr string, st *Store) error {
 	conn, err := net.ListenPacket("udp", addr)
 	if err != nil {
 		return err
@@ -55,7 +56,7 @@ func listenEHome(addr string) error {
 		if err != nil {
 			return err
 		}
-		if reply := handleEHome(buf[:n], from, registered); reply != nil {
+		if reply := handleEHome(buf[:n], from, registered, st); reply != nil {
 			if _, err := conn.WriteTo(reply, from); err != nil {
 				slog.Warn("ehome reply failed", "to", from, "err", err)
 			}
@@ -63,9 +64,10 @@ func listenEHome(addr string) error {
 	}
 }
 
-// handleEHome logs one packet and returns the reply to send, if any.
+// handleEHome logs one packet, records device contact and taps in st, and returns the reply to send, if any.
+// A nil reply for a request means the tap could not be stored, so the device resends it.
 // shortcut: senders are trusted by UDP source address, which a host on the LAN can spoof; this stops casual fakes, not a determined attacker.
-func handleEHome(pkt []byte, from net.Addr, registered map[string]bool) []byte {
+func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Store) []byte {
 	pkt = bytes.TrimRight(pkt, "\x00") // ACS events arrive NUL-padded to a fixed size
 	var m ppvsp
 	d := xml.NewDecoder(bytes.NewReader(pkt))
@@ -77,6 +79,15 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool) []byte {
 	}
 
 	p := m.Params
+	now := time.Now()
+	touch := func() {
+		if err := st.TouchDevice(p.DeviceID, now); err != nil {
+			slog.Warn("record device contact failed", "deviceID", p.DeviceID, "err", err)
+		}
+	}
+	if m.Command != "REGISTER" && registered[from.String()] {
+		touch()
+	}
 	switch {
 	case m.Command == "REGISTER":
 		if !slices.Contains(allowedDeviceIDs, p.DeviceID) {
@@ -84,6 +95,7 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool) []byte {
 			return reply(m, 401, "Unauthorized", "", "")
 		}
 		registered[from.String()] = true
+		touch()
 		ip := alarmIP
 		if ip == "" {
 			ip = localIPFor(from)
@@ -113,6 +125,14 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool) []byte {
 				"serialNo", p.SerialNo,
 				"deviceID", p.DeviceID,
 			)
+			at, err := time.ParseInLocation(stampFmt, p.Time, st.loc)
+			if err != nil {
+				// Resending wouldn't fix an unreadable time, so ack and drop it.
+				slog.Warn("tap time unreadable, not stored", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
+			} else if err := st.InsertTap(Tap{DeviceID: p.DeviceID, SerialNo: p.SerialNo, EmployeeID: p.EmployeeNo, Time: at}, now); err != nil {
+				slog.Error("store tap failed", "employeeNo", p.EmployeeNo, "time", p.Time, "serialNo", p.SerialNo, "deviceID", p.DeviceID, "err", err)
+				return nil
+			}
 		}
 	case m.Command != "KEEPALIVE":
 		slog.Info("ehome packet", "from", from, "data", string(pkt))

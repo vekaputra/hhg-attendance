@@ -40,6 +40,6 @@ func main() {
 	}
 	defer store.Close()
 
-	slog.Error("ehome listener stopped", "err", listenEHome(":"+port))
+	slog.Error("ehome listener stopped", "err", listenEHome(":"+port, store))
 	os.Exit(1)
 }

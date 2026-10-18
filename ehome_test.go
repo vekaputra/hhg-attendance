@@ -5,8 +5,10 @@ import (
 	"encoding/xml"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Trimmed from a DS-K1A8503MF capture; real ACS packets carry ~8 KB of NUL padding.
@@ -26,6 +28,7 @@ func TestHandleEHome(t *testing.T) {
 	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
 	stranger := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 99), Port: 54288}
 	registered := map[string]bool{}
+	st := newTestStore(t)
 
 	// Steps share registered, so order matters.
 	steps := []struct {
@@ -49,7 +52,7 @@ func TestHandleEHome(t *testing.T) {
 				Status   int    `xml:"Status"`
 				AlarmIP  string `xml:"Params>AlarmServerIP"`
 			}
-			d := xml.NewDecoder(bytes.NewReader(handleEHome([]byte(s.pkt), s.from, registered)))
+			d := xml.NewDecoder(bytes.NewReader(handleEHome([]byte(s.pkt), s.from, registered, st)))
 			d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 			if err := d.Decode(&got); err != nil {
 				t.Fatal(err)
@@ -60,7 +63,118 @@ func TestHandleEHome(t *testing.T) {
 		})
 	}
 
-	if handleEHome([]byte("\x01\x02 not xml"), device, registered) != nil {
+	if handleEHome([]byte("\x01\x02 not xml"), device, registered, st) != nil {
 		t.Error("replied to a non-XML packet")
+	}
+}
+
+// replyStatus returns the Status of a handleEHome reply, or 0 for no reply.
+func replyStatus(t *testing.T, reply []byte) int {
+	t.Helper()
+	if reply == nil {
+		return 0
+	}
+	var got struct {
+		Status int `xml:"Status"`
+	}
+	d := xml.NewDecoder(bytes.NewReader(reply))
+	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	if err := d.Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	return got.Status
+}
+
+func tapsOn(t *testing.T, st *Store, employee string) []time.Time {
+	t.Helper()
+	got, err := st.Taps(employee, time.Date(2026, 10, 18, 3, 0, 0, 0, time.UTC), time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestHandleEHomeStoresTapOnce(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{}
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	for range 2 { // the device resends until acked
+		if got := replyStatus(t, handleEHome([]byte(acsPkt), device, registered, st)); got != 200 {
+			t.Fatalf("status = %d, want 200", got)
+		}
+	}
+	want := []time.Time{time.Date(2026, 10, 18, 10, 42, 3, 0, time.UTC)}
+	if got := tapsOn(t, st, "HHG0001"); !reflect.DeepEqual(got, want) {
+		t.Errorf("taps = %v, want %v", got, want)
+	}
+}
+
+func TestHandleEHomeRestart(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{} // empty, as after a server restart
+
+	if got := replyStatus(t, handleEHome([]byte(acsPkt), device, registered, st)); got != 403 {
+		t.Fatalf("status = %d, want 403", got)
+	}
+	if got := tapsOn(t, st, "HHG0001"); len(got) != 0 {
+		t.Fatalf("stored %v before registering", got)
+	}
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	if got := replyStatus(t, handleEHome([]byte(acsPkt), device, registered, st)); got != 200 {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if got := tapsOn(t, st, "HHG0001"); len(got) != 1 {
+		t.Errorf("taps = %v, want one", got)
+	}
+}
+
+func TestHandleEHomeBadTime(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{}
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	bad := strings.Replace(acsPkt, "2026-10-18 10:42:03", "garbage", 1)
+	if got := replyStatus(t, handleEHome([]byte(bad), device, registered, st)); got != 200 {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if got := tapsOn(t, st, "HHG0001"); len(got) != 0 {
+		t.Errorf("stored %v for an unparseable time", got)
+	}
+}
+
+func TestHandleEHomeUnknownEmployeeStored(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{}
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	stranger := strings.Replace(acsPkt, "HHG0001", "ZZZ9999", 1)
+	if got := replyStatus(t, handleEHome([]byte(stranger), device, registered, st)); got != 200 {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if got := tapsOn(t, st, "ZZZ9999"); len(got) != 1 {
+		t.Errorf("taps = %v, want one", got)
+	}
+}
+
+func TestHandleEHomeStoreFailureNoAck(t *testing.T) {
+	allowedDeviceIDs = []string{"admin"}
+	st := newTestStore(t)
+	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
+	registered := map[string]bool{}
+
+	handleEHome([]byte(registerPkt), device, registered, st)
+	st.Close()
+	if reply := handleEHome([]byte(acsPkt), device, registered, st); reply != nil {
+		t.Errorf("acked a tap that was not stored: %s", reply)
 	}
 }
