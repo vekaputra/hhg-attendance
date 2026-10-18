@@ -14,6 +14,26 @@ timezone is empty or unknown. `alarmIP` is where the devices are told to send ev
 (Oracle's public IP is NAT'd) it must be the public IP. If it is empty and a device registers from the internet,
 the log shows an error at REGISTER.
 
+## Docker (production)
+
+`docker-compose.yml` follows the other services on the VPS: image `hhg-attendance`, container `hhg_attendance`,
+`restart: always`, a 64M memory limit, and the external networks `local-app-network` (reverse proxy) and
+`local-db-network` (MySQL). The image is a static binary on distroless (about 16 MB, no shell).
+
+1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in `TIMEZONE`, `ALARM_IP` (the VPS public
+   IP) and `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`). `.env` is git-ignored.
+   `TIMEZONE` and `ALARM_IP` are compiled in, so changing them needs a rebuild.
+2. Add every device's ID to `allowedDeviceIDs` in `ehome.go` (see "Devices").
+3. `docker compose build && docker compose up -d`
+4. Create a login: `printf '%s\n' '<password>' | docker exec -i hhg_attendance /hhg-attendance adduser <name>`
+5. Point the reverse proxy, on `local-app-network`, at `http://hhg-attendance:8080`. The web port is also
+   published on the host's loopback only, at a random port (`docker compose port hhg-attendance 8080`).
+6. UDP 7600 is published on all interfaces for the devices; limit it in Oracle's firewall (see "Firewall").
+
+Logs: `docker logs hhg_attendance`. To migrate an existing SQLite file:
+`docker run --rm --network local-db-network --env-file .env -v "$PWD/attendance.db:/attendance.db:ro" hhg-attendance copy-db /attendance.db`.
+Compose warns that the `version` attribute is obsolete; it is kept to match the other services and is ignored.
+
 ## MySQL
 
 Needs MySQL 8.0.16 or newer (older versions ignore the `CHECK` on `orgs.kind`) in its default strict `sql_mode`

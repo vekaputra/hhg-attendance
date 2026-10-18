@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -246,4 +247,48 @@ func TestCopyDBTargetGuards(t *testing.T) {
 			t.Errorf("copyDB error = %v, want a refusal naming the non-empty target", err)
 		}
 	})
+}
+
+// A source on a read-only mount (as in `docker run -v …:ro`) must still copy, since copy-db never writes to it.
+func TestCopyDBReadOnlySource(t *testing.T) {
+	dir := t.TempDir()
+	src := dir + "/src.db"
+	from, err := OpenStore("sqlite", src, testLoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := from.AddEmployee(Employee{ID: "E1", Name: "Eve", OrgID: mustGet(from.Orgs())[0].ID, ActiveFrom: "2026-10-01"}); err != nil {
+		t.Fatal(err)
+	}
+	from.Close()
+	if err := os.Chmod(src, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+
+	to := newTestStore(t)
+	if err := copyDB(to, src); err != nil {
+		t.Fatalf("copyDB from a read-only source: %v", err)
+	}
+	if got := rowCount(t, to, "employees"); got != 1 {
+		t.Errorf("employees copied = %d, want 1", got)
+	}
+}
+
+func TestCopyDBRefusesUnsavedWAL(t *testing.T) {
+	src := t.TempDir() + "/src.db"
+	from, err := OpenStore("sqlite", src, testLoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from.Close()
+	if err := os.WriteFile(src+"-wal", []byte("pending"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyDB(newTestStore(t), src); err == nil || !strings.Contains(err.Error(), "unsaved changes") {
+		t.Errorf("copyDB error = %v, want a refusal about unsaved changes", err)
+	}
 }

@@ -4,3 +4,4 @@ ehome.log
 *.db-wal
 .superpowers/
 /hhg-attendance
+.env

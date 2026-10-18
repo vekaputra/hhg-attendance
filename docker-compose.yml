@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+  hhg-attendance:
+    image: hhg-attendance
+    build:
+      context: .
+      args:
+        TIMEZONE: ${TIMEZONE:?set TIMEZONE in .env}
+        ALARM_IP: ${ALARM_IP:?set ALARM_IP in .env}
+    container_name: hhg_attendance
+    restart: always
+    environment:
+      ATTENDANCE_DSN: ${ATTENDANCE_DSN:?set ATTENDANCE_DSN in .env}
+      GOMEMLIMIT: 48MiB # keep the Go heap under the 64M container limit
+    ports:
+      - '127.0.0.1::8080' # web app, plain HTTP: loopback only; the proxy reaches hhg-attendance:8080 on local-app-network
+      - '7600:7600/udp' # EHome devices connect here over the internet
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    networks:
+      - local-app-network
+      - local-db-network
+
+networks:
+  local-db-network:
+    external: true
+  local-app-network:
+    external: true

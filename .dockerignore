@@ -1,0 +1,9 @@
+.git
+.superpowers
+docs
+*.db
+*.db-shm
+*.db-wal
+ehome.log
+.env
+/hhg-attendance

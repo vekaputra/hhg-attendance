@@ -31,7 +31,12 @@ func copyDB(st *Store, srcPath string) error {
 	if _, err := os.Stat(srcPath); err != nil {
 		return err // sql.Open would otherwise create an empty file
 	}
-	src, err := sql.Open("sqlite", srcPath)
+	// immutable=1 reads without locks or -shm, so a read-only mount works, but it ignores a -wal file: refuse
+	// while one holds changes not yet written back, which happens only while the app still has the file open.
+	if fi, err := os.Stat(srcPath + "-wal"); err == nil && fi.Size() > 0 {
+		return fmt.Errorf("%s-wal holds unsaved changes: stop the app using %s, then retry", srcPath, srcPath)
+	}
+	src, err := sql.Open("sqlite", "file:"+srcPath+"?mode=ro&immutable=1")
 	if err != nil {
 		return err
 	}
