@@ -189,6 +189,24 @@ func TestPublicRoutes(t *testing.T) {
 	}
 }
 
+// style.css only adds app rules on top of mvp.css, so it must come second to win ties.
+func TestMvpIsTheBaseStylesheet(t *testing.T) {
+	h, session, _, _ := webFixture(t)
+	w := getWithCookies(h, "/static/mvp.css")
+	if ct := w.Header().Get("Content-Type"); w.Code != 200 || !strings.HasPrefix(ct, "text/css") {
+		t.Errorf("GET /static/mvp.css without a session = %d %q, want 200 text/css", w.Code, ct)
+	}
+	for name, page := range map[string]string{
+		"login":    getWithCookies(h, "/login").Body.String(),
+		"calendar": getWithCookies(h, "/calendar", session).Body.String(),
+	} {
+		mvp, own := strings.Index(page, `href="/static/mvp.css"`), strings.Index(page, `href="/static/style.css"`)
+		if mvp < 0 || own < mvp {
+			t.Errorf("%s page links mvp.css at %d and style.css at %d, want mvp.css first", name, mvp, own)
+		}
+	}
+}
+
 func TestCrossOriginPostRejected(t *testing.T) {
 	h, session, _, _ := webFixture(t)
 	for site, want := range map[string]int{"cross-site": 403, "same-origin": 303} {

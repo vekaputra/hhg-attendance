@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" color-mode="user">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {{/* htmx skips 4xx responses by default, which would hide the 400 and 401 pages. Its history cache would keep pages after logout. */ -}}
 <meta name="htmx-config" content='{"historyCacheSize":0,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"4..","swap":true,"error":true},{"code":"5..","swap":false,"error":true}]}'>
 <title>Attendance</title>
+<link rel="stylesheet" href="/static/mvp.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>

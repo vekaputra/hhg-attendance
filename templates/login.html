@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" color-mode="user">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in</title>
+<link rel="stylesheet" href="/static/mvp.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -11,7 +12,7 @@
 <h1>Sign in</h1>
 {{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
 <form method="post" action="/login">
-<label>Username <input name="username" autocapitalize="off" autocomplete="username" required autofocus></label>
+<label>Username <input name="username" type="text" autocapitalize="off" autocomplete="username" required autofocus></label>
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
 <button type="submit">Sign in</button>
 </form>
