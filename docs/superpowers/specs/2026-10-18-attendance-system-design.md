@@ -1,6 +1,6 @@
 # Attendance system for office and cafe: design
 
-Date: 2026-10-18. Status: draft for review.
+Date: 2026-10-18. Status: built (updated 2026-10-19 to match what was built).
 
 ## Why
 
@@ -60,6 +60,12 @@ creates their accounts.
 6. **Works on phones**. On a phone, the month grid becomes a list of only the
    days that have problems. People × days keeps the names fixed and scrolls the
    days sideways. The person calendar becomes a list of days. *(My call.)*
+7. **Events page**: every access event the devices send is stored and listed, one
+   attendance day at a time.
+   - Covers taps, failed fingerprints, doors, alarms and device menu logins.
+   - Filters by device.
+   - Shows a readable label for each event, with its raw code beside it.
+   - Summary cards show the total, accepted, failed and other events.
 
 ## Non-goals (for now)
 
@@ -208,12 +214,19 @@ the key so that a counter reset after a reboot can't silently drop real taps.
   for unregistered senders, and `event` lines for non-tap ACS events. It now
   also stores taps and records each device's last contact time.
 - **UI:** htmx (the owner's choice), with server-rendered `html/template`.
-  The base stylesheet is mvp.css (the owner's choice), a classless CSS file
-  vendored in `static/`. The app follows the OS dark-mode preference.
-- **Storage:** SQLite for development. Production will move to MySQL later
-  (the owner's decision), so keep every SQL statement inside the store's
-  methods. Avoid SQLite-only SQL functions such as `date()` and `strftime()`,
-  and do date maths in Go. The driver is a pure-Go one, `modernc.org/sqlite`.
+  The look is a standard admin dashboard (the owner's choice): a sidebar, a top
+  bar, summary cards and tables in cards. It uses the app's own stylesheet,
+  `static/style.css`, in a light theme only; this replaced mvp.css.
+- **Storage:** SQLite for development, MySQL 8 for production (the owner's
+  decision).
+  - **Choosing:** `dbDriver` picks the database, and the connection string
+    comes from `ATTENDANCE_DSN`.
+  - **SQL:** every SQL statement lives in the store's methods and runs
+    unchanged on both: a plain INSERT, then an UPDATE on a duplicate key. Date
+    maths is done in Go.
+  - **Schema:** only the schema has a MySQL version, `schema_mysql.sql`
+    (InnoDB, `utf8mb4_bin`).
+  - **Migration:** `copy-db` moves a SQLite file into MySQL.
 - **Devices over the internet.** Devices reach the VPS over the internet with
   EHome 4.0 on UDP 7600. EHome 4.0 is unencrypted and has no usable device
   password, so the only gate in code is `allowedDeviceIDs` plus the registered
@@ -231,6 +244,12 @@ the key so that a counter reset after a reboot can't silently drop real taps.
   - No page except login is served without a session.
   - Accounts are created by the owner, for example from a command line.
 - **Logging:** to stderr only (the owner dropped the `ehome.log` file); run under systemd so the journal keeps it.
+- **Deployment:** a Docker image (distroless, about 16 MB) and a compose service
+  in the same shape as the owner's other services.
+  - 64M memory limit.
+  - External `local-app-network` and `local-db-network` networks.
+  - UDP 7600 published for the devices; the web app published on loopback only.
+  - See `DEPLOY.md`.
 
 ## Left to the builder
 

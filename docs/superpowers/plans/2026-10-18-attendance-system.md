@@ -534,3 +534,36 @@
     - The week view shows the row.
     - The device warning disappears after the REGISTER.
 - [ ] **Step 4: Commit** `feat: serve the web app alongside the EHome listener`.
+
+---
+
+## Changes after this plan (as built, 2026-10-19)
+
+Tasks 1–11 were built as written above, and each was reviewed. The work below came afterwards, at the owner's request or from the reviews. It replaces the parts of the plan it names.
+
+- **Task 12, mvp.css:** the base stylesheet. It was later replaced by the dashboard redesign.
+- **Final whole-branch review fixes:**
+  - **Employees:** name and organisation can be edited, an employee can be reactivated, and deactivating asks for confirmation.
+  - **Missing-tap flags:** they wait until the attendance day has ended.
+  - **Shifts:** a shift can't cross 03:00.
+  - **Hours:** never negative.
+  - **Session expiry:** htmx requests get `HX-Redirect`.
+  - **NAT:** an empty `alarmIP` behind NAT is logged.
+  - **Organisations:** an organisation's type is locked once created.
+  - **Roster:** the cell tooltip includes the date.
+  - **Leave and holidays:** dates outside the page's list window are refused.
+  - **`webAddr`:** it defaults to `127.0.0.1:8080`.
+- **MySQL support:**
+  - **Config:** `OpenStore(driver, dsn, loc)` replaces the old open call. `dbDriver`/`dbDSN` choose the database, and `ATTENDANCE_DSN` overrides the DSN.
+  - **Schema:** `schema_sqlite.sql` plus a new `schema_mysql.sql` (InnoDB, `utf8mb4_bin`).
+  - **SQL:** portable on both databases: a plain INSERT, then an UPDATE when `isDuplicate`.
+  - **`leave` table:** renamed to `leaves`, and old SQLite files are renamed automatically.
+  - **Overlong values:** MySQL's "value too long" error (1406) is logged and acked, so the device doesn't resend it forever.
+  - **`copy-db <sqlite-file>`:** the migration command. It opens the source read-only and refuses unsaved `-wal` changes.
+  - **Testing:** the whole suite passes against real MySQL 8.4 with `TEST_MYSQL_DSN` set.
+- **Dashboard redesign:** the app's own `static/style.css`, with a sidebar, top bar, summary cards and tables in cards. It's light-only, checked for contrast and works on phones; mvp.css is removed.
+- **Logging:** stderr only. `ehome.log` was dropped, which supersedes the Global Constraint that kept it.
+- **Events page:**
+  - **Storage:** every ACS event goes into an `events` table before the ack.
+  - **Page:** `/events` lists one attendance day, with a device filter, labels plus raw codes, and exclusive summary cards (total, accepted, failed, other).
+- **Docker:** a `Dockerfile` (distroless, about 16 MB), `docker-compose.yml` in the owner's service style, `.env.example`, and a Docker section in `DEPLOY.md`.
