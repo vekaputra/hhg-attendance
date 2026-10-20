@@ -548,7 +548,7 @@ Tasks 1–11 were built as written above, and each was reviewed. The work below 
   - **Shifts:** a shift can't cross 03:00.
   - **Hours:** never negative.
   - **Session expiry:** htmx requests get `HX-Redirect`.
-  - **NAT:** an empty `alarmIP` behind NAT is logged.
+  - **NAT:** the server logs an error if it would hand a device a private address. Later the `alarmIP` setting was removed: the server echoes the device's own `RegisterServer`.
   - **Organisations:** an organisation's type is locked once created.
   - **Roster:** the cell tooltip includes the date.
   - **Leave and holidays:** dates outside the page's list window are refused.

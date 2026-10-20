@@ -15,7 +15,8 @@ import (
 const (
 	registerPkt = `<?xml version="1.0" encoding="UTF-8"?>` + "\n\r<PPVSPMessage>\n\r<Version>4.0</Version>\n\r<Sequence>97</Sequence>\n\r" +
 		"<CommandType>REQUEST</CommandType>\n\r<Command>REGISTER</Command>\n\r<Params>\n\r<NetUnitType>PU</NetUnitType>\n\r" +
-		"<DeviceID>admin</DeviceID>\n\r<Password>secret</Password>\n\r<DevDetailedType>DS-K1A8503MF</DevDetailedType>\n\r</Params>\n\r</PPVSPMessage>"
+		"<DeviceID>admin</DeviceID>\n\r<Password>secret</Password>\n\r<DevDetailedType>DS-K1A8503MF</DevDetailedType>\n\r" +
+		"<RegisterServer>10.0.0.2</RegisterServer>\n\r</Params>\n\r</PPVSPMessage>"
 	acsPkt = `<?xml version="1.0" encoding="GBK"?>` + "\n\r<PPVSPMessage>\n\r<Version>2.5</Version>\n\r<Sequence>99</Sequence>\n\r" +
 		"<CommandType>REQUEST</CommandType>\n\r<Command>ACS</Command>\n\r<Params>\n\r<DeviceID>admin</DeviceID>\n\r" +
 		"<Time>2026-10-18 10:42:03</Time>\n\r<MajorType>0x5</MajorType>\n\r<MinorType>0x26</MinorType>\n\r<CardNo></CardNo>\n\r" +
@@ -24,9 +25,10 @@ const (
 )
 
 func TestHandleEHome(t *testing.T) {
-	alarmIP, allowedDeviceIDs = "10.0.0.2", []string{"door2", "admin"}
+	allowedDeviceIDs = []string{"door2", "admin"}
 	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
 	stranger := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 99), Port: 54288}
+	fallback := localIPFor(device) // used when the device's RegisterServer can't be echoed
 	registered := map[string]bool{}
 	st := newTestStore(t)
 
@@ -41,6 +43,8 @@ func TestHandleEHome(t *testing.T) {
 	}{
 		{"acs before register", device, acsPkt, 99, 403, ""},
 		{"register with unknown device ID", device, strings.Replace(registerPkt, ">admin<", ">door9<", 1), 97, 401, ""},
+		{"register with an unsafe RegisterServer", device, strings.Replace(registerPkt, "10.0.0.2", "1.2.3.4&lt;/AlarmServerIP&gt;&lt;x&gt;", 1), 97, 200, fallback},
+		{"register with a hostname", device, strings.Replace(registerPkt, "10.0.0.2", "att.example.com", 1), 97, 200, "att.example.com"},
 		{"register", device, registerPkt, 97, 200, "10.0.0.2"},
 		{"nul-padded acs", device, acsPkt + strings.Repeat("\x00", 8082), 99, 200, ""},
 		{"acs from unregistered sender", stranger, acsPkt, 99, 403, ""},

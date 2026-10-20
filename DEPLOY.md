@@ -5,14 +5,16 @@ development uses a SQLite file beside the binary, which needs no setup.
 
 ## Build
 
-Set the business timezone and the server's public IP when you build:
+Set the business timezone when you build:
 
-    go build -ldflags "-X main.timezone=Asia/Jakarta -X main.alarmIP=<VPS public IP>" -o hhg-attendance .
+    go build -ldflags "-X main.timezone=Asia/Jakarta" -o hhg-attendance .
 
-Or edit `timezone` (main.go) and `alarmIP` (ehome.go) and run `go build`. The app exits at start if the
-timezone is empty or unknown. `alarmIP` is where the devices are told to send events; on a VPS behind NAT
-(Oracle's public IP is NAT'd) it must be the public IP. If it is empty and a device registers from the internet,
-the log shows an error at REGISTER.
+Or edit `timezone` (main.go) and run `go build`. The app exits at start if the timezone is empty or unknown.
+
+There is no server-IP setting. Point each device at the server's public address (its platform access "server
+address" setting). The device reports that address in its REGISTER (`RegisterServer`), and the server tells the
+device to send its events there too. This works behind Oracle's NAT, where the server can't see its own public IP.
+If a device sends no usable `RegisterServer` and registers from the internet, the log shows an error at REGISTER.
 
 ## Docker (production)
 
@@ -20,9 +22,9 @@ the log shows an error at REGISTER.
 `restart: always`, a 64M memory limit, and the external networks `local-app-network` (reverse proxy) and
 `local-db-network` (MySQL). The image is a static binary on distroless (about 16 MB, no shell).
 
-1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in `TIMEZONE`, `ALARM_IP` (the VPS public
-   IP) and `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`). `.env` is git-ignored.
-   `TIMEZONE` and `ALARM_IP` are compiled in, so changing them needs a rebuild.
+1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in `TIMEZONE` and
+   `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`). `.env` is git-ignored.
+   `TIMEZONE` is compiled in, so changing it needs a rebuild.
 2. Add every device's ID to `allowedDeviceIDs` in `ehome.go` (see "Devices").
 3. `docker compose build && docker compose up -d`
 4. Create a login: `printf '%s\n' '<password>' | docker exec -i hhg_attendance /hhg-attendance adduser <name>`
@@ -50,7 +52,7 @@ taps collide as duplicates.
 
 2. Build with the driver set (default is `sqlite`):
 
-       go build -ldflags "-X main.timezone=Asia/Jakarta -X main.alarmIP=<VPS public IP> -X main.dbDriver=mysql" -o hhg-attendance .
+       go build -ldflags "-X main.timezone=Asia/Jakarta -X main.dbDriver=mysql" -o hhg-attendance .
 
    Or edit `dbDriver` in `main.go`.
 

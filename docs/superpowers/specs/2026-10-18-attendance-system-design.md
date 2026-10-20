@@ -233,8 +233,9 @@ the key so that a counter reset after a reboot can't silently drop real taps.
   source address.
   - The owner should limit UDP 7600 in Oracle's firewall to the office's and
     cafe's public IPs.
-  - `alarmIP` must be set to the VPS public IP. Oracle instances are behind NAT,
-    so automatic detection would give the device a private IP.
+  - The device is told to send events to the server address it was configured
+    with (its `RegisterServer`). Oracle instances are behind NAT, so the server
+    can't see its own public IP. There is no server-IP setting.
 - **Login security** (the site is public):
   - Passwords are hashed with a slow hash; stdlib `crypto/pbkdf2` is enough.
   - Repeated wrong passwords are limited.

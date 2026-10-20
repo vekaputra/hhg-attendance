@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"regexp"
 	"slices"
 	"time"
 )
@@ -20,9 +21,8 @@ import (
 // settings) allowed to register. Fill these in.
 var allowedDeviceIDs = []string{"gshhgfp"}
 
-// alarmIP is where the device should send alarms. Leave empty to use the
-// address the device reached us on; set it when the server is behind NAT.
-var alarmIP = ""
+// serverAddrRE accepts an IP or hostname the device reports as RegisterServer, so it is safe to echo into the reply.
+var serverAddrRE = regexp.MustCompile(`^[A-Za-z0-9.:-]{1,253}$`)
 
 // ppvsp holds the fields we use; REGISTER's Password is deliberately not read so it never reaches the log.
 type ppvsp struct {
@@ -31,6 +31,7 @@ type ppvsp struct {
 	Command     string `xml:"Command"`
 	Params      struct {
 		DeviceID         string `xml:"DeviceID"`
+		RegisterServer   string `xml:"RegisterServer"`
 		Model            string `xml:"DevDetailedType"`
 		Firmware         string `xml:"FirmwareVersion"`
 		Time             string `xml:"Time"`
@@ -96,12 +97,13 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 		}
 		registered[from.String()] = true
 		touch()
-		ip := alarmIP
-		if ip == "" {
+		// Send events to the address the device was pointed at: behind NAT we can't see our public IP ourselves.
+		ip := p.RegisterServer
+		if !serverAddrRE.MatchString(ip) {
 			ip = localIPFor(from)
 			host, _, _ := net.SplitHostPort(from.String())
 			if isPublic(net.ParseIP(host)) && net.ParseIP(ip).IsPrivate() {
-				slog.Error("alarmIP is empty and this server is behind NAT; set alarmIP to the public IP or devices will send events to a private address", "from", from, "alarmTo", ip)
+				slog.Error("device sent no usable RegisterServer and this server is behind NAT; its events will go to a private address", "from", from, "alarmTo", ip)
 			}
 		}
 		slog.Info("device registered", "from", from, "deviceID", p.DeviceID, "model", p.Model, "firmware", p.Firmware, "alarmTo", ip)

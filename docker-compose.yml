@@ -6,7 +6,6 @@ services:
       context: .
       args:
         TIMEZONE: ${TIMEZONE:?set TIMEZONE in .env}
-        ALARM_IP: ${ALARM_IP:?set ALARM_IP in .env}
     container_name: hhg_attendance
     restart: always
     environment:

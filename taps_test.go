@@ -44,7 +44,7 @@ func dropTables(t *testing.T, dsn string) {
 }
 
 func TestTouchDevice(t *testing.T) {
-	alarmIP, allowedDeviceIDs = "10.0.0.2", []string{"admin"}
+	allowedDeviceIDs = []string{"admin"}
 	st := newTestStore(t)
 	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
 	registered := map[string]bool{}
