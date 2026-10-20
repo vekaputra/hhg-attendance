@@ -6,7 +6,7 @@ services:
     container_name: hhg_attendance
     restart: always
     environment:
-      TIMEZONE: ${TIMEZONE:?set TIMEZONE in .env}
+      TIMEZONE: ${TIMEZONE:-Asia/Jakarta}
       ATTENDANCE_DSN: ${ATTENDANCE_DSN:?set ATTENDANCE_DSN in .env}
       GOMEMLIMIT: 48MiB # keep the Go heap under the 64M container limit
     ports:

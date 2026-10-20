@@ -5,11 +5,9 @@ development uses a SQLite file beside the binary, which needs no setup.
 
 ## Build
 
-Build with `go build -o hhg-attendance .` and set the business timezone in the environment when you run it:
-
-    TIMEZONE=Asia/Jakarta ./hhg-attendance        (or: TIMEZONE=Asia/Jakarta go run .)
-
-The app exits at start if `TIMEZONE` is empty or unknown. `go run` does not read `.env`; only Docker Compose does.
+Build with `go build -o hhg-attendance .` (or just `go run .`). The business timezone defaults to Asia/Jakarta;
+for another zone set `TIMEZONE`, e.g. `TIMEZONE=Asia/Makassar go run .`. The app exits at start if it is unknown.
+`go run` does not read `.env`; only Docker Compose does.
 
 There is no server-IP setting. Point each device at the server's public address (its platform access "server
 address" setting). The device reports that address in its REGISTER (`RegisterServer`), and the server tells the
@@ -25,9 +23,10 @@ If a device sends no usable `RegisterServer` and registers from the internet, th
 `restart: always`, a 64M memory limit, and the external networks `local-app-network` (reverse proxy) and
 `local-db-network` (MySQL). The image is a static binary on distroless (about 16 MB, no shell).
 
-1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in `TIMEZONE` and
+1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in
    `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`). `.env` is git-ignored.
-   Both are read at start, so after changing `.env` run `docker compose up -d` (no rebuild needed).
+   `TIMEZONE` is optional (Asia/Jakarta by default). Settings are read at start, so after changing `.env` run
+   `docker compose up -d` (no rebuild needed).
 2. Add every device's ID to `allowedDeviceIDs` in `ehome.go` (see "Devices").
 3. `docker compose build && docker compose up -d`
 4. Create a login: `printf '%s\n' '<password>' | docker exec -i hhg_attendance /hhg-attendance adduser <name>`
