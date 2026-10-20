@@ -17,7 +17,7 @@ var port = "7600"
 // It is loopback-only, so the proxy must run on this host.
 var webAddr = "127.0.0.1:8080"
 
-// Business timezone, e.g. "Asia/Jakarta". Fill this in.
+// Business timezone, e.g. "Asia/Jakarta". The TIMEZONE environment variable overrides it.
 var timezone = ""
 
 // dbDriver is "sqlite" (development) or "mysql" (production).
@@ -28,9 +28,16 @@ var dbDriver = "sqlite"
 var dbDSN = "attendance.db"
 
 func main() {
+	if v := os.Getenv("TIMEZONE"); v != "" {
+		timezone = v
+	}
+	if timezone == "" {
+		slog.Error("set the business timezone: the TIMEZONE environment variable, e.g. TIMEZONE=Asia/Jakarta")
+		os.Exit(1)
+	}
 	loc, err := time.LoadLocation(timezone)
-	if timezone == "" || err != nil {
-		slog.Error("set a valid business timezone in main.go", "timezone", timezone, "err", err)
+	if err != nil {
+		slog.Error("unknown TIMEZONE", "timezone", timezone, "err", err)
 		os.Exit(1)
 	}
 	if v := os.Getenv("ATTENDANCE_DSN"); v != "" {
