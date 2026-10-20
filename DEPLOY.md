@@ -14,6 +14,9 @@ Or edit `timezone` (main.go) and run `go build`. The app exits at start if the t
 There is no server-IP setting. Point each device at the server's public address (its platform access "server
 address" setting). The device reports that address in its REGISTER (`RegisterServer`), and the server tells the
 device to send its events there too. This works behind Oracle's NAT, where the server can't see its own public IP.
+A domain works too: when the device reports a name, the server looks up its IPv4 address and gives the device that,
+since the firmware may not accept a name there. The domain needs a public DNS A record pointing to the VPS; UDP 7600
+still needs no proxy, because the devices talk to the VPS directly.
 If a device sends no usable `RegisterServer` and registers from the internet, the log shows an error at REGISTER.
 
 ## Docker (production)

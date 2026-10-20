@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -99,6 +100,9 @@ func handleEHome(pkt []byte, from net.Addr, registered map[string]bool, st *Stor
 		touch()
 		// Send events to the address the device was pointed at: behind NAT we can't see our public IP ourselves.
 		ip := p.RegisterServer
+		if serverAddrRE.MatchString(ip) && net.ParseIP(ip) == nil {
+			ip = resolveIPv4(ip)
+		}
 		if !serverAddrRE.MatchString(ip) {
 			ip = localIPFor(from)
 			host, _, _ := net.SplitHostPort(from.String())
@@ -168,6 +172,19 @@ func reply(m ppvsp, status int, desc, method, params string) []byte {
 		"<PPVSPMessage><Version>2.5</Version><Sequence>%d</Sequence><CommandType>RESPONSE</CommandType>%s"+
 		"<WhichCommand>%s</WhichCommand><Status>%d</Status><Description>%s</Description><Params>%s</Params></PPVSPMessage>",
 		m.Sequence, method, m.Command, status, desc, params)
+}
+
+// resolveIPv4 turns the domain a device was pointed at into an IPv4 address, since the firmware may not accept a
+// hostname as AlarmServerIP. If the lookup fails it returns the name unchanged for the device to try itself.
+func resolveIPv4(host string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if err != nil || len(ips) == 0 {
+		slog.Warn("could not resolve RegisterServer; sending the name to the device", "host", host, "err", err)
+		return host
+	}
+	return ips[0].String()
 }
 
 // localIPFor returns our IP on the route to addr, which is the one the device reached on a LAN.
