@@ -5,12 +5,16 @@ package main
 
 import (
 	"cmp"
+	"context"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,8 +22,7 @@ import (
 var port = "7600"
 
 func main() {
-	// Logger setup goes here, first: every file logs through slog's default logger, which writes to stderr.
-
+	// Until the logs directory exists (below), slog's default logger writes to stderr only.
 	env := map[string]string{}
 	var missing []string
 	for _, k := range []string{"RELAY_URL", "RELAY_USER", "RELAY_PASSWORD", "RELAY_DEVICE_IDS"} {
@@ -43,6 +46,10 @@ func main() {
 			fatal("create data directory", "err", err)
 		}
 	}
+	// Every file logs through slog's default logger: stderr (journald, in RAM) gets each line at once; the SD card
+	// only gets them on hl.flush.
+	hl := &hourlyLog{dir: filepath.Join(data, "logs"), now: time.Now}
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, hl), nil)))
 
 	s := &sender{
 		url:      env["RELAY_URL"],
@@ -53,17 +60,48 @@ func main() {
 	}
 	conn, err := net.ListenPacket("udp", ":"+port)
 	if err != nil {
-		fatal("listen", "port", port, "err", err)
+		slog.Error("listen", "port", port, "err", err)
+		hl.flush()
+		os.Exit(1)
 	}
 	slog.Info("relay listening", "port", port, "vps", s.url, "deviceIDs", allowed, "data", data)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 	go func() {
 		s.flush()
-		for range time.Tick(time.Hour) {
-			s.flush()
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := hl.flush(); err != nil {
+					slog.Error("flush logs failed", "err", err)
+				}
+				if err := hl.prune(30 * 24 * time.Hour); err != nil {
+					slog.Error("prune logs failed", "err", err)
+				}
+				s.flush()
+			}
 		}
 	}()
-	slog.Error("ehome listener stopped", "err", serve(conn, &ehome{allowed: allowed, registered: map[string]bool{}}, s))
-	os.Exit(1)
+	go func() { <-ctx.Done(); conn.Close() }() // unblocks serve
+
+	err = serve(conn, &ehome{allowed: allowed, registered: map[string]bool{}}, s)
+	code := 0
+	if ctx.Err() != nil {
+		slog.Info("relay stopping")
+	} else {
+		slog.Error("ehome listener stopped", "err", err)
+		code = 1
+	}
+	if err := hl.flush(); err != nil {
+		slog.Error("final log flush failed", "err", err)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 func fatal(msg string, args ...any) {
