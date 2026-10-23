@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 // Tap is one door event for an employee. SerialNo is the device's event counter, so (DeviceID, SerialNo, Time) identifies a tap across resends.
 type Tap struct {
@@ -90,34 +93,12 @@ func (s *Store) Events(from, to time.Time, deviceID string) ([]Event, error) {
 	return events, rows.Err()
 }
 
-// TouchDevice records that the device was heard from at the given time.
-func (s *Store) TouchDevice(deviceID string, at time.Time) error {
-	contact := at.In(s.loc).Format(stampFmt)
-	_, err := s.db.Exec(`INSERT INTO devices (device_id, last_contact) VALUES (?, ?)`, deviceID, contact)
-	if isDuplicate(err) {
-		_, err = s.db.Exec(`UPDATE devices SET last_contact = ? WHERE device_id = ?`, contact, deviceID)
+// LastReceived returns when the newest event arrived, or false when there are none.
+func (s *Store) LastReceived() (time.Time, bool, error) {
+	var v sql.NullString
+	if err := s.db.QueryRow(`SELECT MAX(received_at) FROM events`).Scan(&v); err != nil || !v.Valid {
+		return time.Time{}, false, err
 	}
-	return err
-}
-
-// DeviceContacts returns each device's last contact time by device ID.
-func (s *Store) DeviceContacts() (map[string]time.Time, error) {
-	rows, err := s.db.Query(`SELECT device_id, last_contact FROM devices`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	contacts := map[string]time.Time{}
-	for rows.Next() {
-		var id, v string
-		if err := rows.Scan(&id, &v); err != nil {
-			return nil, err
-		}
-		t, err := time.ParseInLocation(stampFmt, v, s.loc)
-		if err != nil {
-			return nil, err
-		}
-		contacts[id] = t
-	}
-	return contacts, rows.Err()
+	t, err := time.ParseInLocation(stampFmt, v.String, s.loc)
+	return t, err == nil, err
 }

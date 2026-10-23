@@ -29,11 +29,8 @@ func TestDescribeEvent(t *testing.T) {
 	}
 }
 
-// The clock is 2026-10-18 12:00. door1 and door2 are allowed devices; "old" is not, but sent an event.
+// The clock is 2026-10-18 12:00. The filter offers the devices that sent an event that day.
 func TestEventsPage(t *testing.T) {
-	saved := allowedDeviceIDs
-	allowedDeviceIDs = []string{"door1", "door2"}
-	t.Cleanup(func() { allowedDeviceIDs = saved })
 	h, session, st, _, _ := adminFixture(t)
 	for _, e := range []Event{
 		{DeviceID: "door1", SerialNo: "1", Major: "0x5", Minor: "0x26", EmployeeID: "HHG0002", Time: at("2026-10-18 08:30:00")},
@@ -96,9 +93,9 @@ func TestEventsPage(t *testing.T) {
 	if strings.Contains(page, "Fingerprint") {
 		t.Error("door2 page shows another device's events")
 	}
-	wantAll(t, get("device=old"), "Card accepted") // not an allowed device, but seen that day
+	wantAll(t, get("device=old"), "Card accepted") // seen that day
 
-	// A well-formed device that is neither allowed nor seen just has no events, and stays selected.
+	// A well-formed device that sent nothing that day just has no events, and stays selected.
 	wantAll(t, get("device=nope"), `<option value="nope" selected>`, "No events received this day.")
 
 	// The next day starts at 03:00, and a day with nothing says so.

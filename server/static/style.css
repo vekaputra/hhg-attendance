@@ -46,7 +46,9 @@ small { font-size: 12px; }
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; min-height: 75px; padding: 14px 28px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .sub { font-size: 13px; color: var(--muted); }
 .sub:empty { display: none; }
-.tools { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.received { margin-left: auto; font-size: 12px; color: var(--muted); }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tools:empty { display: none; }
 .tools form { display: flex; align-items: center; gap: 8px; }
 .tools label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500; }
 .pager { display: flex; gap: 6px; }
@@ -68,10 +70,8 @@ button:hover, .btn:hover { background: var(--neutral-bg); color: var(--text); }
 .danger { color: var(--bad); }
 .danger:hover { background: var(--bad-bg); color: var(--bad); }
 
-/* Alerts: .alert is the amber device warning; .warn is a form error (in a roster cell it shrinks to red text) */
-.alert, .warn { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--late-line); border-radius: var(--radius); background: var(--late-bg); color: var(--late); }
-.alert svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
-.warn { border-color: var(--bad-line); background: var(--bad-bg); color: var(--bad); }
+/* .warn is a form error (in a roster cell it shrinks to red text) */
+.warn { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--bad-line); border-radius: var(--radius); background: var(--bad-bg); color: var(--bad); }
 
 /* Cards */
 .card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -180,7 +180,7 @@ legend { padding: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--neutr
   .side-menu { display: none; width: 100%; flex: none; padding-top: 10px; }
   .side.open .side-menu { display: flex; }
   .top { padding: 12px 16px; }
-  .tools { width: 100%; margin-left: 0; }
+  .tools { width: 100%; }
   .tools form { width: 100%; }
   .tools label, .tools select { flex: 1; min-width: 0; }
   .content { gap: 14px; padding: 16px; }

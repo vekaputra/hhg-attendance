@@ -7,26 +7,22 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestDeviceWarnings(t *testing.T) {
-	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
-	contacts := map[string]time.Time{
-		"a": now.Add(-30 * time.Second),
-		"b": now.Add(-3 * time.Hour),
-		"d": now.Add(-5*time.Minute - 50*time.Second),
-		"e": now.Add(-contactWarnAfter),
+func TestLayoutShowsLastReceived(t *testing.T) {
+	h, session, st, _, _ := adminFixture(t)
+	get := func() string { return getWithCookies(h, "/calendar", session).Body.String() }
+	wantAll(t, get(), "Last event received: never")
+
+	e := Event{DeviceID: "d1", SerialNo: "1", Major: "0x5", Minor: "0x26", Time: at("2026-10-18 10:59:00")}
+	if err := st.InsertEvent(e, at("2026-10-18 11:00:00")); err != nil {
+		t.Fatal(err)
 	}
-	got := deviceWarnings(contacts, []string{"a", "b", "c", "d", "e"}, now)
-	want := []string{"b: no contact for 3h", "c: no contact yet", "d: no contact for 5m"}
-	if !slices.Equal(got, want) {
-		t.Errorf("deviceWarnings = %q, want %q", got, want)
-	}
+	wantAll(t, get(), "Last event received: 2026-10-18 11:00")
 }
 
 func TestTemplateFormats(t *testing.T) {
@@ -115,9 +111,6 @@ func webFixture(t *testing.T) (h http.Handler, session *http.Cookie, office, caf
 }
 
 func TestCalendarViews(t *testing.T) {
-	saved := allowedDeviceIDs
-	allowedDeviceIDs = []string{"gshhgfp"}
-	t.Cleanup(func() { allowedDeviceIDs = saved })
 	h, session, office, cafe := webFixture(t)
 	get := func(query string) string {
 		t.Helper()
@@ -130,7 +123,7 @@ func TestCalendarViews(t *testing.T) {
 
 	month := get(fmt.Sprintf("org=%d&view=month&at=2026-10-05", office.ID))
 	wantAll(t, month, "HHG0002", "12m late", "HHG0004", "absent",
-		"gshhgfp: no contact yet", "ana", `action="/logout"`, "/static/htmx.min.js", `hx-boost="true"`,
+		"ana", `action="/logout"`, "/static/htmx.min.js", `hx-boost="true"`,
 		`"historyCacheSize":0`, `href="/person"`)
 	// October 2026 starts on a Thursday and ends on a Saturday: 3 blanks before, 1 after.
 	if n := strings.Count(month, `class="blank"`); n != 4 {

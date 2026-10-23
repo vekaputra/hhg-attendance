@@ -12,5 +12,5 @@ RUN CGO_ENABLED=0 go build -trimpath -tags timetzdata \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/hhg-attendance /hhg-attendance
-EXPOSE 8080 7600/udp
+EXPOSE 8080
 ENTRYPOINT ["/hhg-attendance"]

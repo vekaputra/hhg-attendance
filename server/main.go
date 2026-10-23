@@ -1,4 +1,4 @@
-// Command hhg-attendance records a Hikvision EHome 4.0 device's taps over UDP (ehome.go) and serves the
+// Command hhg-attendance receives door events relayed over POST /api/events (ingest.go) and serves the
 // attendance web app (web.go). "hhg-attendance adduser <name>" sets a login password, read from stdin.
 // "hhg-attendance copy-db <sqlite-file>" copies an existing SQLite database into the configured store.
 package main
@@ -9,9 +9,6 @@ import (
 	"os"
 	"time"
 )
-
-// port is the EHome server port configured on the device.
-var port = "7600"
 
 // webAddr is where the web app listens; the reverse proxy in front of it handles HTTPS.
 // It is loopback-only, so the proxy must run on this host.
@@ -62,10 +59,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	go func() {
-		slog.Error("ehome listener stopped", "err", listenEHome(":"+port, st))
-		os.Exit(1)
-	}()
 	web := &http.Server{Addr: webAddr, Handler: newServer(st, loc, time.Now), ReadHeaderTimeout: 10 * time.Second}
 	slog.Error("web server stopped", "err", web.ListenAndServe())
 	os.Exit(1)

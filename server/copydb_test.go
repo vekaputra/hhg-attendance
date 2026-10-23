@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// insertDevice seeds the unused devices table, which copy-db still carries over.
+func insertDevice(s *Store, id, lastContact string) error {
+	_, err := s.db.Exec(`INSERT INTO devices (device_id, last_contact) VALUES (?, ?)`, id, lastContact)
+	return err
+}
+
 func rowCount(t *testing.T, s *Store, table string) int {
 	t.Helper()
 	var n int
@@ -60,7 +66,7 @@ func TestCopyDB(t *testing.T) {
 				from.InsertTap(Tap{DeviceID: "d1", SerialNo: "84", EmployeeID: "E1", Time: at("2026-10-19 15:01:00")}, at("2026-10-19 15:01:01")),
 				from.InsertEvent(Event{DeviceID: "d1", SerialNo: "83", Major: "0x5", Minor: "0x26", EmployeeID: "E1", Time: at("2026-10-19 06:02:00")}, at("2026-10-19 06:02:01")),
 				from.InsertEvent(Event{DeviceID: "d1", SerialNo: "85", Major: "0x5", Minor: "0x31", Time: at("2026-10-19 06:03:00")}, at("2026-10-19 06:03:01")),
-				from.TouchDevice("d1", at("2026-10-19 15:05:00")),
+				insertDevice(from, "d1", "2026-10-19 15:05:00"),
 				from.SetRoster("E1", date("2026-10-19"), shifts[0].ID, "mgr", at("2026-10-18 09:00:00")),
 				from.SetRoster("E1", date("2026-10-20"), 0, "mgr", at("2026-10-18 09:00:00")),
 				from.AddLeave("E2", date("2026-10-21"), date("2026-10-22")),
@@ -204,7 +210,7 @@ func TestCopyDBRefusesLeaveInBothTables(t *testing.T) {
 	}
 }
 
-// A target the app already ran on has device contacts, which the copy replaces; holidays and events are real
+// A target may hold device contacts from an older run, which the copy replaces; holidays and events are real
 // data, so a target holding any is refused.
 func TestCopyDBTargetGuards(t *testing.T) {
 	src := t.TempDir() + "/src.db"
@@ -212,21 +218,22 @@ func TestCopyDBTargetGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := from.TouchDevice("d1", at("2026-10-19 10:00:00")); err != nil {
+	if err := insertDevice(from, "d1", "2026-10-19 10:00:00"); err != nil {
 		t.Fatal(err)
 	}
 	from.Close()
 
 	t.Run("device contacts replaced", func(t *testing.T) {
 		to := newTestStoreIn(t, testLoc)
-		if err := to.TouchDevice("d1", at("2026-10-18 09:00:00")); err != nil {
+		if err := insertDevice(to, "d1", "2026-10-18 09:00:00"); err != nil {
 			t.Fatal(err)
 		}
 		if err := copyDB(to, src); err != nil {
 			t.Fatal(err)
 		}
-		if got, want := mustGet(to.DeviceContacts()), map[string]time.Time{"d1": at("2026-10-19 10:00:00")}; !reflect.DeepEqual(got, want) {
-			t.Errorf("contacts = %v, want %v", got, want)
+		var got string
+		if err := to.db.QueryRow(`SELECT last_contact FROM devices WHERE device_id = 'd1'`).Scan(&got); err != nil || got != "2026-10-19 10:00:00" {
+			t.Errorf("last_contact = %q, %v; want the source's 2026-10-19 10:00:00", got, err)
 		}
 	})
 	t.Run("events refused", func(t *testing.T) {

@@ -126,7 +126,7 @@ func (srv *server) showEmployees(w http.ResponseWriter, r *http.Request, status 
 	}
 	page := employeesPage{Error: msg, Employees: emps, Orgs: orgs}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, status, "employees.html", page)
@@ -280,7 +280,7 @@ func (srv *server) showOrgs(w http.ResponseWriter, r *http.Request, status int, 
 		page.Orgs = append(page.Orgs, v)
 	}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, status, "orgs.html", page)
@@ -434,7 +434,7 @@ func (srv *server) showLeave(w http.ResponseWriter, r *http.Request, status int,
 		page.Leaves = append(page.Leaves, leaveRow{l, names[l.EmployeeID]})
 	}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, status, "leave.html", page)
@@ -513,7 +513,7 @@ func (srv *server) showHolidays(w http.ResponseWriter, r *http.Request, status i
 	}
 	page := holidaysPage{Error: msg, Days: slices.Sorted(maps.Keys(days))}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, status, "holidays.html", page)
@@ -691,7 +691,7 @@ func (srv *server) showRoster(w http.ResponseWriter, r *http.Request) {
 		page.Rows = append(page.Rows, row)
 	}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, http.StatusOK, "roster.html", page)

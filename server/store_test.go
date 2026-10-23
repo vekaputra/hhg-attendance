@@ -102,12 +102,6 @@ func TestUpsertsKeepLatest(t *testing.T) {
 	shifts := mustGet(s.Shifts(cafe.ID))
 	must(s.AddEmployee(Employee{ID: "E1", Name: "Eve", OrgID: cafe.ID, ActiveFrom: "2026-01-01"}))
 
-	must(s.TouchDevice("d1", at("2026-10-18 09:00:00")))
-	must(s.TouchDevice("d1", at("2026-10-18 10:00:00")))
-	if got, want := mustGet(s.DeviceContacts()), map[string]time.Time{"d1": at("2026-10-18 10:00:00")}; !reflect.DeepEqual(got, want) {
-		t.Errorf("TouchDevice: contacts = %v, want %v", got, want)
-	}
-
 	must(s.SetUser("ana", "first password"))
 	must(s.SetUser("ana", "second password"))
 	var users int

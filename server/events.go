@@ -56,7 +56,7 @@ type eventRow struct {
 // so the three add up to Total. Whether the event has an employee does not matter: a denied card is a failure.
 type eventSummary struct{ Total, Accepted, Failed, Other int }
 
-// deviceIDRE is what a device ID in the filter may look like, unless the ID is allowed or sent an event that day.
+// deviceIDRE is what a device ID in the filter may look like, unless the ID sent an event that day.
 var deviceIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type eventsPage struct {
@@ -88,8 +88,8 @@ func (srv *server) events(w http.ResponseWriter, r *http.Request) {
 		serverError(w, "events", err)
 		return
 	}
-	// The filter offers the allowed devices and any other that sent an event that day.
-	devices := slices.Clone(allowedDeviceIDs)
+	// The filter offers the devices that sent an event that day.
+	var devices []string
 	for _, e := range events {
 		if !slices.Contains(devices, e.DeviceID) {
 			devices = append(devices, e.DeviceID)
@@ -145,7 +145,7 @@ func (srv *server) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, http.StatusOK, "events.html", page)

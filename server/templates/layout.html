@@ -35,11 +35,10 @@
 <div class="main">
 <header class="top">
 <div><h1>{{template "heading" .}}</h1><p class="sub">{{block "sub" .}}{{end}}</p></div>
+<p class="received">Last event received: {{.LastReceived}}</p>
 <div class="tools">{{block "tools" .}}{{end}}</div>
 </header>
 <main class="content">
-{{range .Warnings}}<p class="alert" role="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><span>{{.}}</span></p>
-{{end -}}
 {{template "content" .}}
 </main>
 </div>

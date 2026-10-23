@@ -23,28 +23,6 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
-// contactWarnAfter is how long a device may stay silent before every page warns about it.
-const contactWarnAfter = 2 * time.Minute
-
-// deviceWarnings returns a message for each allowed device that is silent or has never been heard from, in allowed order.
-func deviceWarnings(contacts map[string]time.Time, allowed []string, now time.Time) []string {
-	var msgs []string
-	for _, id := range allowed {
-		last, ok := contacts[id]
-		silent := now.Sub(last)
-		switch {
-		case !ok:
-			msgs = append(msgs, id+": no contact yet")
-		case silent <= contactWarnAfter:
-		case silent >= time.Hour:
-			msgs = append(msgs, fmt.Sprintf("%s: no contact for %dh", id, int(silent.Hours())))
-		default:
-			msgs = append(msgs, fmt.Sprintf("%s: no contact for %dm", id, int(silent.Minutes())))
-		}
-	}
-	return msgs
-}
-
 func hours(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
@@ -121,17 +99,22 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 }
 
 // pageBase is what the layout shows on every page; each page's data embeds it.
+// LastReceived is when the newest event arrived, as "2006-01-02 15:04", or "never".
 type pageBase struct {
-	User     string
-	Warnings []string
+	User         string
+	LastReceived string
 }
 
 func (srv *server) base(r *http.Request) (pageBase, error) {
-	contacts, err := srv.st.DeviceContacts()
+	last, ok, err := srv.st.LastReceived()
 	if err != nil {
 		return pageBase{}, err
 	}
-	return pageBase{User: currentUser(r), Warnings: deviceWarnings(contacts, allowedDeviceIDs, srv.now())}, nil
+	received := "never"
+	if ok {
+		received = last.Format("2006-01-02 15:04")
+	}
+	return pageBase{User: currentUser(r), LastReceived: received}, nil
 }
 
 // render writes the page inside the layout. It renders to a buffer first so a template error becomes a clean 500.
@@ -274,7 +257,7 @@ func (srv *server) calendar(w http.ResponseWriter, r *http.Request) {
 		page.Weeks = monthWeeks(from, rows)
 	}
 	if page.pageBase, err = srv.base(r); err != nil {
-		serverError(w, "device contacts", err)
+		serverError(w, "last received", err)
 		return
 	}
 	srv.render(w, http.StatusOK, "calendar.html", page)

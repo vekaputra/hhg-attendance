@@ -2,10 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"net"
 	"os"
 	"reflect"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -43,34 +42,29 @@ func dropTables(t *testing.T, dsn string) {
 	}
 }
 
-func TestTouchDevice(t *testing.T) {
-	allowedDeviceIDs = []string{"admin"}
-	st := newTestStore(t)
-	device := &net.UDPAddr{IP: net.IPv4(192, 168, 100, 72), Port: 54288}
-	registered := map[string]bool{}
-
-	handleEHome([]byte(registerPkt), device, registered, st)
-	contacts, err := st.DeviceContacts()
+func tapsOn(t *testing.T, st *Store, employee string) []time.Time {
+	t.Helper()
+	got, err := st.Taps(employee, time.Date(2026, 10, 18, 3, 0, 0, 0, time.UTC), time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterRegister := contacts["admin"]
-	if afterRegister.IsZero() {
-		t.Fatalf("no contact after REGISTER: %v", contacts)
-	}
+	return got
+}
 
-	// Push the stored contact into the past so a KEEPALIVE must move it, without sleeping past stampFmt's 1s resolution.
-	if err := st.TouchDevice("admin", afterRegister.Add(-time.Hour)); err != nil {
-		t.Fatal(err)
+func TestLastReceived(t *testing.T) {
+	st := newTestStoreIn(t, testLoc)
+	if _, ok, err := st.LastReceived(); err != nil || ok {
+		t.Fatalf("empty store: ok = %v, err = %v; want false, nil", ok, err)
 	}
-	keepalive := strings.Replace(acsPkt, "<Command>ACS</Command>", "<Command>KEEPALIVE</Command>", 1)
-	handleEHome([]byte(keepalive), device, registered, st)
-	contacts, err = st.DeviceContacts()
-	if err != nil {
-		t.Fatal(err)
+	for i, received := range []string{"2026-10-18 11:00:00", "2026-10-18 09:00:00"} { // newest first: MAX, not the last insert
+		e := Event{DeviceID: "d1", SerialNo: strconv.Itoa(i), Major: "0x5", Minor: "0x26", Time: at("2026-10-18 08:00:00")}
+		if err := st.InsertEvent(e, at(received)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if contacts["admin"].Before(afterRegister) {
-		t.Errorf("contact after KEEPALIVE %v, want >= %v", contacts["admin"], afterRegister)
+	got, ok, err := st.LastReceived()
+	if err != nil || !ok || !got.Equal(at("2026-10-18 11:00:00")) || got.Location() != testLoc {
+		t.Errorf("LastReceived = %v, %v, %v; want 2026-10-18 11:00:00 in %v, true, nil", got, ok, err, testLoc)
 	}
 }
 

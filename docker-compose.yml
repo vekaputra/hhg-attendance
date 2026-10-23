@@ -13,7 +13,6 @@ services:
       GOMEMLIMIT: 48MiB # keep the Go heap under the 64M container limit
     ports:
       - '127.0.0.1::8080' # web app, plain HTTP: loopback only; the proxy reaches hhg-attendance:8080 on local-app-network
-      - '7600:7600/udp' # EHome devices connect here over the internet
     deploy:
       resources:
         limits:
