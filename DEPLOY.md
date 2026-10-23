@@ -1,21 +1,29 @@
 # Deploying hhg-attendance
 
-One binary: the EHome UDP listener and the web app. Production stores its data in MySQL (see "MySQL");
-development uses a SQLite file beside the binary, which needs no setup.
+This is the VPS half of the system: the web app (`server/`, one binary). It accepts no UDP. The fingerprint device
+talks to a Raspberry Pi on its own LAN, and the Pi relays each event here over HTTPS (see `relay/README.md`).
+Production stores its data in MySQL (see "MySQL"); development uses a SQLite file beside the binary, which needs
+no setup.
 
 ## Build
 
-Build with `go build -o hhg-attendance .` (or just `go run .`). The business timezone defaults to Asia/Jakarta;
-for another zone set `TIMEZONE`, e.g. `TIMEZONE=Asia/Makassar go run .`. The app exits at start if it is unknown.
-`go run` does not read `.env`; only Docker Compose does.
+Build with `go build -o hhg-attendance ./server` (or just `go run ./server`). The `-o` is needed: without it Go
+tries to write a file called `server` over the `server/` directory. The business timezone defaults to Asia/Jakarta;
+for another zone set `TIMEZONE`, e.g. `TIMEZONE=Asia/Makassar go run ./server`. The app exits at start if it is
+unknown. `go run` does not read `.env`; only Docker Compose does.
 
-There is no server-IP setting. Point each device at the server's public address (its platform access "server
-address" setting). The device reports that address in its REGISTER (`RegisterServer`), and the server tells the
-device to send its events there too. This works behind Oracle's NAT, where the server can't see its own public IP.
-A domain works too: when the device reports a name, the server looks up its IPv4 address and gives the device that,
-since the firmware may not accept a name there. The domain needs a public DNS A record pointing to the VPS; UDP 7600
-still needs no proxy, because the devices talk to the VPS directly.
-If a device sends no usable `RegisterServer` and registers from the internet, the log shows an error at REGISTER.
+## How events arrive
+
+The Pi relay sends each device event to `POST /api/events` with HTTP basic auth. The login is `RELAY_USER` and
+`RELAY_PASSWORD` in `.env`, and **must match** the same two values in the Pi's `/etc/hhg-relay.env`. While either is
+empty the endpoint refuses every request, so the relay gets 401 and queues its events on the Pi.
+
+The endpoint goes through the existing Nginx Proxy Manager host for the web app, over HTTPS: the relay refuses a
+URL that does not start with `https://`, so basic auth never travels in clear text. The Pi's `RELAY_URL` is
+`https://<your-domain>/api/events`. No other proxy setting is needed.
+
+Duplicates are ignored: each event carries a hash of its own fields, kept in `events.event_hash`. An existing
+database gets that column added in place the first time the new binary starts.
 
 ## Docker (production)
 
@@ -24,15 +32,16 @@ If a device sends no usable `RegisterServer` and registers from the internet, th
 `local-db-network` (MySQL). The image is a static binary on distroless (about 16 MB, no shell).
 
 1. Copy `.env.example` to `.env` beside `docker-compose.yml` and fill in
-   `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`). `.env` is git-ignored.
+   `ATTENDANCE_DSN` (MySQL addressed by its container name on `local-db-network`), `RELAY_USER` and
+   `RELAY_PASSWORD`. Generate the password with `openssl rand -base64 24`; base64 is safe in `.env` and in the
+   Pi's env file. Keep both values: the Pi needs the same ones. `.env` is git-ignored.
    `TIMEZONE` is optional (Asia/Jakarta by default). Settings are read at start, so after changing `.env` run
    `docker compose up -d` (no rebuild needed).
-2. Add every device's ID to `allowedDeviceIDs` in `ehome.go` (see "Devices").
-3. `docker compose build && docker compose up -d`
-4. Create a login: `printf '%s\n' '<password>' | docker exec -i hhg_attendance /hhg-attendance adduser <name>`
-5. Point the reverse proxy, on `local-app-network`, at `http://hhg-attendance:8080`. The web port is also
+2. `docker compose build && docker compose up -d`
+3. Create a login: `printf '%s\n' '<password>' | docker exec -i hhg_attendance /hhg-attendance adduser <name>`
+4. Point the reverse proxy, on `local-app-network`, at `http://hhg-attendance:8080`. The web port is also
    published on the host's loopback only, at a random port (`docker compose port hhg-attendance 8080`).
-6. UDP 7600 is published on all interfaces for the devices; limit it in Oracle's firewall (see "Firewall").
+   The container publishes no UDP port.
 
 Logs: `docker logs hhg_attendance`. To migrate an existing SQLite file:
 `docker run --rm --network local-db-network --env-file .env -v "$PWD/attendance.db:/attendance.db:ro" hhg-attendance copy-db /attendance.db`.
@@ -54,9 +63,9 @@ taps collide as duplicates.
 
 2. Build with the driver set (default is `sqlite`):
 
-       go build -ldflags "-X main.dbDriver=mysql" -o hhg-attendance .
+       go build -ldflags "-X main.dbDriver=mysql" -o hhg-attendance ./server
 
-   Or edit `dbDriver` in `main.go`.
+   Or edit `dbDriver` in `server/main.go`.
 
 3. Pass the DSN in the environment, not the binary, so the password is never compiled in. `ATTENDANCE_DSN`
    overrides `dbDSN` (the SQLite file name by default):
@@ -83,11 +92,6 @@ A SQLite file from before the `leave` table became `leaves` is renamed in place 
 opens it, and `copy-db` reads the old name too. If a file somehow holds rows in both, `copy-db` refuses; copy the
 rows into `leaves`, drop `leave`, and retry.
 
-## Devices
-
-`allowedDeviceIDs` in `ehome.go` lists the Device IDs allowed to register. It holds only `gshhgfp`; **add the
-cafe device's ID** and rebuild, or it is rejected with 401 (see "register rejected" in the server log).
-
 ## Users
 
     printf '%s\n' '<password>' | ./hhg-attendance adduser <name>
@@ -99,9 +103,20 @@ an existing user resets the password and logs that user out everywhere.
 
 Open the VCN security list or NSG, and check the instance's own firewall too:
 
-- **UDP 7600**: only from the office and cafe public IPs. The listener trusts the UDP source address, which can
-  be spoofed, so this allow-list is the real protection.
+- **TCP 443** (HTTPS, through the proxy) and **TCP 22** (SSH) are all that is needed. If Nginx Proxy Manager gets
+  its certificates over HTTP, TCP 80 as well.
+- **UDP 7600**: delete the old ingress rule. The server no longer listens for UDP, so nothing is behind it. Do
+  this last (see "Cut-over").
 - **TCP 8080**: not open to the internet.
+
+## Cut-over
+
+Switching an existing install from devices talking to the VPS to the Pi relay, in this order:
+
+1. Deploy this version of the server with `RELAY_USER` and `RELAY_PASSWORD` set (see "Docker").
+2. Bring the Pi up following `relay/README.md` and point the device at the Pi.
+3. Scan a fingerprint and check that the "Last event received" time in the header of any page moves.
+4. Only then delete the Oracle UDP 7600 rule.
 
 ## Reverse proxy
 
@@ -116,7 +131,7 @@ The web app speaks plain HTTP, so put a proxy in front of it:
 
 ## Files and backups
 
-Logs go to stderr only (run it under systemd so the journal keeps them). Every access event the devices send is
+Logs go to stderr only (run it under systemd so the journal keeps them). Every access event the Pi relay forwards is
 stored in the database and shown on the Events page. With MySQL, back up the database:
 
     mysqldump --single-transaction -u hhg -p hhg > backup-$(date +%F).sql
@@ -131,5 +146,5 @@ which is safe while the app runs; it fails if the target file already exists.
 ## Notes
 
 - Pages follow the OS or browser dark-mode setting.
-- All SQL lives in the `Store` methods (`store.go`, `taps.go`, `data.go`, `auth.go`) and runs unchanged on SQLite
-  and MySQL. A schema change goes in both `schema_sqlite.sql` and `schema_mysql.sql`.
+- All SQL lives in the `Store` methods (`server/store.go`, `server/taps.go`, `server/data.go`, `server/auth.go`) and runs unchanged on SQLite
+  and MySQL. A schema change goes in both `server/schema_sqlite.sql` and `server/schema_mysql.sql`.

@@ -1,6 +1,6 @@
 # Raspberry Pi relay for the fingerprint device: design
 
-Date: 2026-10-23. Status: proposed.
+Date: 2026-10-23. Status: built. The Pi setup guide (relay/README.md) is untested on real hardware.
 
 ## Why
 
