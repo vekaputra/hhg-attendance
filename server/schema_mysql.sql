@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS events (
 	minor       VARCHAR(8) NOT NULL,
 	employee_id VARCHAR(32) NOT NULL DEFAULT '',
 	received_at VARCHAR(19) NOT NULL,
+	event_hash  CHAR(64) NULL,
 	PRIMARY KEY (device_id, serial_no, device_time),
-	INDEX events_time (device_time)
+	INDEX events_time (device_time),
+	UNIQUE KEY events_hash (event_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS devices (

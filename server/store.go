@@ -82,6 +82,10 @@ func OpenStore(driver, dsn string, loc *time.Location) (*Store, error) {
 			return nil, fmt.Errorf("apply schema: %w", err)
 		}
 	}
+	if err := addEventHash(db, driver); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.seed(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("seed: %w", err)
@@ -111,6 +115,32 @@ func renameOldLeave(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`ALTER TABLE leave RENAME TO leaves`); err != nil {
 		return fmt.Errorf("rename leave to leaves: %w", err)
+	}
+	return nil
+}
+
+// addEventHash adds events.event_hash and its unique index to a database from before the column existed. Old
+// rows keep a NULL hash, which a unique index allows many of.
+func addEventHash(db *sql.DB, driver string) error {
+	columns := `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'event_hash'`
+	add := `ALTER TABLE events ADD COLUMN event_hash TEXT`
+	if driver == "mysql" {
+		columns = `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'events' AND COLUMN_NAME = 'event_hash'`
+		add = `ALTER TABLE events ADD COLUMN event_hash CHAR(64) NULL, ADD UNIQUE KEY events_hash (event_hash)`
+	}
+	var n int
+	if err := db.QueryRow(columns).Scan(&n); err != nil {
+		return fmt.Errorf("check events.event_hash: %w", err)
+	}
+	if n == 0 {
+		if _, err := db.Exec(add); err != nil {
+			return fmt.Errorf("add events.event_hash: %w", err)
+		}
+	}
+	if driver == "sqlite" {
+		if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS events_hash ON events (event_hash)`); err != nil {
+			return fmt.Errorf("index events.event_hash: %w", err)
+		}
 	}
 	return nil
 }

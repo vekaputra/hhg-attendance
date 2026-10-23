@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -189,5 +191,50 @@ func TestIsTooLong(t *testing.T) {
 	}
 	if isTooLong(&mysql.MySQLError{Number: 1062}) || isTooLong(nil) {
 		t.Error("isTooLong accepted an error that is not 1406")
+	}
+}
+
+func TestOpenStoreAddsEventHash(t *testing.T) {
+	driver, dsn, oldEvents := "sqlite", t.TempDir()+"/a.db", `CREATE TABLE events (
+		device_id TEXT NOT NULL, serial_no TEXT NOT NULL, device_time TEXT NOT NULL, major TEXT NOT NULL, minor TEXT NOT NULL,
+		employee_id TEXT NOT NULL DEFAULT '', received_at TEXT NOT NULL, PRIMARY KEY (device_id, serial_no, device_time))`
+	if v := os.Getenv("TEST_MYSQL_DSN"); v != "" {
+		driver, dsn = "mysql", v
+		dropTables(t, dsn)
+		oldEvents = `CREATE TABLE events (
+			device_id VARCHAR(64) NOT NULL, serial_no VARCHAR(20) NOT NULL, device_time VARCHAR(19) NOT NULL, major VARCHAR(8) NOT NULL,
+			minor VARCHAR(8) NOT NULL, employee_id VARCHAR(32) NOT NULL DEFAULT '', received_at VARCHAR(19) NOT NULL,
+			PRIMARY KEY (device_id, serial_no, device_time)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`
+	}
+	old, err := sql.Open(driver, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{oldEvents, `INSERT INTO events VALUES ('admin', '1', '2026-10-23 08:00:00', '0x5', '0x4b', '', '2026-10-23 08:00:01')`} {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	var s *Store
+	for range 2 { // the second open finds the column already there
+		if s, err = OpenStore(driver, dsn, time.UTC); err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+	}
+	at := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	for _, serial := range []string{"2", "3"} {
+		if err := s.InsertEvent(Event{DeviceID: "admin", SerialNo: serial, Major: "0x5", Minor: "0x4b", Time: at, Hash: "abc"}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Events(at.Add(-2*time.Hour), at.Add(time.Hour), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 { // the old row and one of the two same-hash inserts
+		t.Errorf("got %d events, want 2: %+v", len(got), got)
 	}
 }

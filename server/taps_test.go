@@ -109,3 +109,20 @@ func TestEvents(t *testing.T) {
 		t.Errorf("10-18 events = %+v, want the 01:30 one", got)
 	}
 }
+
+func TestInsertEventHashDedupes(t *testing.T) {
+	st := newTestStore(t)
+	at := time.Date(2026, 10, 23, 8, 0, 0, 0, time.UTC)
+	for _, serial := range []string{"1", "2"} {
+		if err := st.InsertEvent(Event{DeviceID: "admin", SerialNo: serial, Major: "0x5", Minor: "0x4b", Time: at, Hash: "abc"}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.Events(at.Add(-time.Hour), at.Add(time.Hour), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d events, want 1 (same hash): %+v", len(got), got)
+	}
+}

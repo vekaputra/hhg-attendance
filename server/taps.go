@@ -42,16 +42,22 @@ func (s *Store) Taps(employeeID string, from, to time.Time) ([]time.Time, error)
 }
 
 // Event is one access event the device sent. Major and Minor are the device's hex strings, e.g. "0x5";
-// EmployeeID is empty when the event has none. (DeviceID, SerialNo, Time) identifies it across resends.
+// EmployeeID is empty when the event has none. (DeviceID, SerialNo, Time) identifies it across resends. Hash is
+// the event's content hash, empty for events stored before it existed; Events does not return it.
 type Event struct {
 	DeviceID, SerialNo, Major, Minor, EmployeeID string
 	Time                                         time.Time
+	Hash                                         string
 }
 
-// InsertEvent stores an event; one the device already sent (a resend) is silently ignored.
+// InsertEvent stores an event; one the device already sent (a resend, by key or by hash) is silently ignored.
 func (s *Store) InsertEvent(e Event, receivedAt time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO events (device_id, serial_no, device_time, major, minor, employee_id, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		e.DeviceID, e.SerialNo, e.Time.In(s.loc).Format(stampFmt), e.Major, e.Minor, e.EmployeeID, receivedAt.In(s.loc).Format(stampFmt))
+	var hash any // NULL, not '', so events without a hash don't collide on the unique index
+	if e.Hash != "" {
+		hash = e.Hash
+	}
+	_, err := s.db.Exec(`INSERT INTO events (device_id, serial_no, device_time, major, minor, employee_id, received_at, event_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.DeviceID, e.SerialNo, e.Time.In(s.loc).Format(stampFmt), e.Major, e.Minor, e.EmployeeID, receivedAt.In(s.loc).Format(stampFmt), hash)
 	if isDuplicate(err) {
 		return nil
 	}
