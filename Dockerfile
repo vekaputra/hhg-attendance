@@ -8,7 +8,7 @@ COPY . .
 # so the reverse proxy on the Docker network can reach it; compose publishes it on the host's loopback only.
 RUN CGO_ENABLED=0 go build -trimpath -tags timetzdata \
     -ldflags "-s -w -X main.dbDriver=mysql -X main.webAddr=:8080" \
-    -o /out/hhg-attendance .
+    -o /out/hhg-attendance ./server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/hhg-attendance /hhg-attendance

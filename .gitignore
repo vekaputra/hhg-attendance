@@ -4,4 +4,6 @@ ehome.log
 *.db-wal
 .superpowers/
 /hhg-attendance
+/server/server
+/relay/relay
 .env
