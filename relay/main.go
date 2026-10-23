@@ -94,7 +94,9 @@ func serve(conn net.PacketConn, e *ehome, s *sender) error {
 			}
 		}
 		if msg != nil && msg.Command != "ACS" {
-			if err := s.post(*msg); err != nil {
+			if s.down.Load() {
+				slog.Warn("forward skipped, VPS down", "command", msg.Command, "deviceID", msg.DeviceID)
+			} else if err := s.post(*msg); err != nil {
 				slog.Warn("forward failed, dropped", "command", msg.Command, "deviceID", msg.DeviceID, "err", err)
 			}
 		}

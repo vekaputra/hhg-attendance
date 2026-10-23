@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"hhg-attendance/internal/wire"
@@ -23,6 +24,9 @@ type sender struct {
 	client              *http.Client // Timeout 10s
 	queueDir            string       // <data>/queue
 	flushing            sync.Mutex   // TryLock: one flush at a time
+	// down is set while the VPS is unreachable (network error or 5xx), so events skip the post, which could stall
+	// the serve loop for the whole client timeout, and go straight to the queue. Every post updates it.
+	down atomic.Bool
 }
 
 // statusError is a non-200 answer from the VPS.
@@ -30,8 +34,19 @@ type statusError int
 
 func (e statusError) Error() string { return fmt.Sprintf("VPS answered %d", int(e)) }
 
-// post sends m once. It returns nil only on HTTP 200, which means stored, already had, or deliberately dropped.
-func (s *sender) post(m wire.Message) error {
+// unreachable reports whether a post error means the VPS cannot take events right now: a network error or a 5xx.
+func unreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	status, ok := errors.AsType[statusError](err)
+	return !ok || status >= 500
+}
+
+// post sends m once and updates down. It returns nil only on HTTP 200, which means stored, already had, or
+// deliberately dropped.
+func (s *sender) post(m wire.Message) (err error) {
+	defer func() { s.down.Store(unreachable(err)) }()
 	body, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -91,7 +106,17 @@ func (s *sender) enqueue(m wire.Message) error {
 
 // deliver posts m; on failure it enqueues m. It returns nil if m was posted or queued. After a successful post it
 // starts flush in a goroutine, so the queue empties as soon as the VPS is reachable again.
+// While down it queues m without posting and starts flush, which probes the VPS off the serve loop and clears down
+// on its first answer; it posts only if the queue cannot take m.
 func (s *sender) deliver(m wire.Message) error {
+	if s.down.Load() {
+		err := s.enqueue(m)
+		if err == nil {
+			go s.flush()
+			return nil
+		}
+		slog.Error("queue failed while VPS down, posting instead", "serialNo", m.SerialNo, "err", err)
+	}
 	err := s.post(m)
 	if err == nil {
 		go s.flush()
@@ -129,7 +154,7 @@ func (s *sender) flush() {
 			continue
 		}
 		if err := s.post(m); err != nil {
-			if status, ok := errors.AsType[statusError](err); ok && status < 500 {
+			if !unreachable(err) {
 				slog.Error("VPS refused queued event, kept", "file", name, "err", err)
 				continue
 			}

@@ -13,7 +13,7 @@ import (
 func TestServeAcksOnlyWhenSafe(t *testing.T) {
 	v := newFakeVPS(t)
 	queueDir := t.TempDir()
-	s := newTestSender(v, queueDir)
+	s := newTestSender(v.URL, queueDir)
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
