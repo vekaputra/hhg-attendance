@@ -8,6 +8,8 @@ services:
     environment:
       TIMEZONE: ${TIMEZONE:-Asia/Jakarta}
       ATTENDANCE_DSN: ${ATTENDANCE_DSN:?set ATTENDANCE_DSN in .env}
+      RELAY_USER: ${RELAY_USER:-}
+      RELAY_PASSWORD: ${RELAY_PASSWORD:-}
       GOMEMLIMIT: 48MiB # keep the Go heap under the 64M container limit
     ports:
       - '127.0.0.1::8080' # web app, plain HTTP: loopback only; the proxy reaches hhg-attendance:8080 on local-app-network

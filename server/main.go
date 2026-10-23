@@ -36,6 +36,7 @@ func main() {
 		slog.Error("unknown TIMEZONE", "timezone", timezone, "err", err)
 		os.Exit(1)
 	}
+	relayUser, relayPassword = os.Getenv("RELAY_USER"), os.Getenv("RELAY_PASSWORD")
 	if v := os.Getenv("ATTENDANCE_DSN"); v != "" {
 		dbDSN = v
 	}

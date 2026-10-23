@@ -91,7 +91,8 @@ func parseTemplates() map[string]*template.Template {
 }
 
 // newServer builds the web app. Only the login routes and static files are public; any other
-// route, registered or not, sits behind a session.
+// route, registered or not, sits behind a session. POST /api/events is the exception: the Pi relay authenticates
+// with basic auth and is no browser, so it bypasses both the session and the cross-origin check.
 func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler {
 	srv := &server{st: st, loc: loc, now: now, tmpl: parseTemplates()}
 	getLogin, postLogin, logout := loginHandlers(st, &limiter{}, now, srv.tmpl["login.html"])
@@ -112,7 +113,11 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 	mux.HandleFunc("POST /login", postLogin)
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 	mux.Handle("/", requireLogin(st, now, pages))
-	return http.NewCrossOriginProtection().Handler(mux)
+	protected := http.NewCrossOriginProtection().Handler(mux)
+	root := http.NewServeMux()
+	root.Handle("POST /api/events", ingestHandler(st, loc, now))
+	root.Handle("/", protected)
+	return root
 }
 
 // pageBase is what the layout shows on every page; each page's data embeds it.
