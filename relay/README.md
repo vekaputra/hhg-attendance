@@ -194,13 +194,15 @@ If you did step 1 as written, the card has free space after the root partition. 
     lsblk
 
 You should see `mmcblk0p1` (about 512 MB, boot), `mmcblk0p2` (root, a few GB) and nothing else. Create the third
-partition in the free space (all of it, which is plenty for a queue and logs):
+partition in the free space (all of it, which is plenty for a queue and logs). `sfdisk` refuses to touch a disk
+whose partitions are mounted unless given `--force`. That is safe here: `--append` only adds a partition and
+changes no existing one.
 
-    echo ',,L' | sudo sfdisk --append /dev/mmcblk0
+    echo ',,L' | sudo sfdisk --force --append /dev/mmcblk0
 
     lsblk
 
-`mmcblk0p3` must now be listed. If it is not, run `sudo partprobe /dev/mmcblk0` and look again. Make the file
+`mmcblk0p3` must now be listed. If it is not, run `sudo partprobe /dev/mmcblk0` (or `sudo partx -a /dev/mmcblk0`) and look again. Make the file
 system, with a label so `/etc/fstab` does not depend on a device name:
 
     sudo mkfs.ext4 -L hhgdata /dev/mmcblk0p3
@@ -364,5 +366,5 @@ What this guide relied on:
 - Adding Wi-Fi and setting priority with `nmcli` on Trixie:
   [Classmethod, Raspberry Pi (Trixie) Wi-Fi with nmcli](https://dev.classmethod.jp/articles/raspberry-pi-trixie-wi-fi-nmcli/).
 
-Not found in any source and therefore only reasoned from the above: the `sfdisk --append` partitioning, the
+Not found in any source and therefore only reasoned from the above: the `sfdisk --force --append` partitioning, the
 `recurse=0` edit on top of `raspi-config`'s `overlayroot=tmpfs`, and the offline shrink in step 1.
