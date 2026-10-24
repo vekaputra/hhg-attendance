@@ -15,6 +15,7 @@ var copyTables = []struct{ name, cols string }{
 	{"shifts", "id, org_id, name, start_time, end_time"},
 	{"employees", "id, name, org_id, active_from, active_until"},
 	{"taps", "device_id, serial_no, device_time, employee_id, received_at"},
+	// event_hash is not copied: copied rows get NULL, and resends of those events still dedupe by primary key.
 	{"events", "device_id, serial_no, device_time, major, minor, employee_id, received_at"},
 	{"devices", "device_id, last_contact"},
 	{"roster", "employee_id, day, shift_name, start_time, end_time, changed_by, changed_at"},

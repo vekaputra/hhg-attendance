@@ -84,8 +84,8 @@ With the app stopped (so no tap lands in the old file), run the new binary once 
 
 It copies every table with the same IDs, in one transaction, and logs the row count per table. Sessions are not
 copied, so everyone logs in again. It refuses unless the MySQL database has no employees, taps, events, users or holidays,
-so run it before the first start on MySQL. If the app already ran there, the seeded organisations and shifts and
-any device contacts it recorded are replaced by the copy. If it fails, nothing is copied: fix the cause and run it
+so run it before the first start on MySQL. If the app already ran there, the seeded organisations and shifts (and any
+device contacts an older version recorded) are replaced by the copy. If it fails, nothing is copied: fix the cause and run it
 again. The SQLite file is only read; keep it until you have checked the app.
 
 A SQLite file from before the `leave` table became `leaves` is renamed in place the first time the new binary
@@ -131,7 +131,7 @@ The web app speaks plain HTTP, so put a proxy in front of it:
 
 ## Files and backups
 
-Logs go to stderr only (run it under systemd so the journal keeps them). Every access event the Pi relay forwards is
+Logs go to stderr only (under Docker, read them with `docker logs hhg_attendance`). Every access event the Pi relay forwards is
 stored in the database and shown on the Events page. With MySQL, back up the database:
 
     mysqldump --single-transaction -u hhg -p hhg > backup-$(date +%F).sql

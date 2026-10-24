@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,9 +37,13 @@ func (h *hourlyLog) Write(p []byte) (int, error) {
 	defer h.mu.Unlock()
 	h.lines = append(h.lines, logLine{h.now().Format(time.DateOnly), bytes.Clone(p)})
 	h.size += len(p)
-	if h.size >= logCap && h.flushLocked() != nil {
-		// The disk is failing: drop the buffer rather than grow without bound. stderr still has these lines, and
-		// the hourly flush reports the error.
+	if h.size < logCap {
+		return len(p), nil
+	}
+	if err := h.flushLocked(); err != nil {
+		// The disk is failing: drop the buffer rather than grow without bound. stderr still has these lines. Report
+		// on stderr directly: slog would write back into h and deadlock on h.mu.
+		fmt.Fprintln(os.Stderr, "log flush failed, buffered log lines dropped from the SD card:", err)
 		h.lines, h.size = nil, 0
 	}
 	return len(p), nil

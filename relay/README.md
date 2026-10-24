@@ -286,7 +286,7 @@ writable partition:
 `/` must show type `overlay`, and `/data` must show `/dev/mmcblk0p3`, `ext4` and `rw`. If `/data` shows `overlay`,
 `recurse=0` did not take effect: turn the overlay off (below) and fix `cmdline.txt` before relying on the Pi. Also
 check `sudo systemctl status hhg-relay`, and do a final test: scan a fingerprint, `sudo reboot`, and confirm
-`ls /data/logs` still has the day's file after the reboot.
+`sudo ls /data/logs` still has the day's file after the reboot.
 
 **Changing things later** (a new relay binary, `/etc/hhg-relay.env`, Wi-Fi, `apt`). Turn the overlay off, reboot,
 change, then turn it on again. With the overlay on, `/boot/firmware` is read-only and `raspi-config` cannot change
@@ -335,8 +335,8 @@ The queue holds events the VPS has not confirmed yet. Empty is healthy:
 
     sudo ls /data/queue
 
-Events pile up there while the VPS or the Pi's internet is down, and drain by themselves: an hour after the last try,
-and right after the next successful post. If the queue stays full while the VPS is up, `journalctl -u hhg-relay`
+Events pile up there while the VPS or the Pi's internet is down, and drain by themselves: when the relay starts,
+on every new event while the VPS is down, an hour after the last try, and right after the next successful post. If the queue stays full while the VPS is up, `journalctl -u hhg-relay`
 says why (`VPS answered 401` means `RELAY_USER` or `RELAY_PASSWORD` differs from the VPS `.env`).
 
 ## Sources

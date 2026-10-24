@@ -34,6 +34,9 @@ func main() {
 		os.Exit(1)
 	}
 	relayUser, relayPassword = os.Getenv("RELAY_USER"), os.Getenv("RELAY_PASSWORD")
+	if relayUser == "" || relayPassword == "" {
+		slog.Warn("RELAY_USER or RELAY_PASSWORD is unset: POST /api/events refuses every request")
+	}
 	if v := os.Getenv("ATTENDANCE_DSN"); v != "" {
 		dbDSN = v
 	}
