@@ -9,7 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,12 +30,15 @@ func main() {
 			missing = append(missing, k)
 		}
 	}
+	relayURL, _ := url.Parse(env["RELAY_URL"])
 	allowed := strings.FieldsFunc(env["RELAY_DEVICE_IDS"], func(r rune) bool { return r == ',' || r == ' ' })
 	switch {
 	case len(missing) > 0:
 		fatal("missing required environment", "vars", missing)
 	case !strings.HasPrefix(env["RELAY_URL"], "https://"):
 		fatal("RELAY_URL must start with https://") // basic auth must never cross the internet in clear text
+	case relayURL == nil:
+		fatal("RELAY_URL is not a valid URL") // not the error: it quotes the URL, credentials included
 	case len(allowed) == 0:
 		fatal("RELAY_DEVICE_IDS lists no device ID")
 	}
@@ -55,7 +58,7 @@ func main() {
 		url:      env["RELAY_URL"],
 		user:     env["RELAY_USER"],
 		password: env["RELAY_PASSWORD"],
-		client:   &http.Client{Timeout: 10 * time.Second},
+		client:   newClient(),
 		queueDir: filepath.Join(data, "queue"),
 	}
 	conn, err := net.ListenPacket("udp", ":"+port)
@@ -64,7 +67,7 @@ func main() {
 		hl.flush()
 		os.Exit(1)
 	}
-	slog.Info("relay listening", "port", port, "vps", s.url, "deviceIDs", allowed, "data", data)
+	slog.Info("relay listening", "port", port, "vps", relayURL.Redacted(), "deviceIDs", allowed, "data", data)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

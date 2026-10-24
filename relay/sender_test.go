@@ -67,7 +67,7 @@ func (v *fakeVPS) received() []wire.Message {
 }
 
 func newTestSender(url, queueDir string) *sender {
-	return &sender{url: url, user: "relay", password: "s3cret", client: &http.Client{Timeout: 10 * time.Second}, queueDir: queueDir}
+	return &sender{url: url, user: "relay", password: "s3cret", client: newClient(), queueDir: queueDir}
 }
 
 func event(serial string) wire.Message {
@@ -335,5 +335,28 @@ func TestLiveSuccessFlushesQueue(t *testing.T) {
 	s.flushing.Lock() // wait for the flush goroutine to finish
 	if got := serials(v.received()); !slices.Equal(got, []string{"2", "1"}) {
 		t.Errorf("received %v", got)
+	}
+}
+
+// A wrong RELAY_URL path reaches the VPS's login redirect (303 -> GET /login -> 200). Following it would count as
+// delivered: the event must be queued, and flush must keep a queued file.
+func TestRedirectIsNotDelivery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			return // 200
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	}))
+	t.Cleanup(srv.Close)
+	s := newTestSender(srv.URL+"/api/events/", t.TempDir())
+	if err := s.deliver(event("1")); err != nil {
+		t.Fatal(err)
+	}
+	if q := queued(t, s.queueDir); len(q) != 1 {
+		t.Fatalf("queue = %v, want the event queued", q)
+	}
+	s.flush()
+	if q := queued(t, s.queueDir); len(q) != 1 {
+		t.Errorf("flush dropped the event on a redirect: queue = %v", q)
 	}
 }

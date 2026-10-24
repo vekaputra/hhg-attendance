@@ -29,6 +29,15 @@ type sender struct {
 	down atomic.Bool
 }
 
+// newClient never follows redirects: a wrong RELAY_URL path ends in the VPS's 303 to /login, whose 200 would
+// otherwise pass for a delivery.
+func newClient() *http.Client {
+	return &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 // statusError is a non-200 answer from the VPS.
 type statusError int
 
