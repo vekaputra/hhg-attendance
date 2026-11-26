@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"slices"
@@ -152,6 +153,116 @@ func (srv *server) partTime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv.render(w, http.StatusOK, "parttime.html", page)
+}
+
+// partTimeExport sends the shown period as an Excel workbook, from the same data as the page.
+func (srv *server) partTimeExport(w http.ResponseWriter, r *http.Request) {
+	month, ok := srv.payMonthParam(w, r.URL.Query().Get("month"))
+	if !ok {
+		return
+	}
+	page, err := srv.partTimeData(r, month, srv.today())
+	if err != nil {
+		serverError(w, "part-time export", err)
+		return
+	}
+	var buf bytes.Buffer
+	if err := writeXLSX(&buf, partTimeWorkbook(page)); err != nil {
+		serverError(w, "part-time export", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "Part-time "+month.Format("January 2006")+".xlsx"))
+	w.Write(buf.Bytes())
+}
+
+// partTimeWorkbook is the page as three sheets: the summary, the daily-hours grid, and one row per worked day.
+func partTimeWorkbook(p partTimePage) []xlsxSheet {
+	summary := [][]any{{"ID", "Name", "Days", "Hours", "Daily wage", "Pay", "Final"}}
+	daily := [][]any{{"ID", "Name"}}
+	for _, d := range p.Days {
+		daily[0] = append(daily[0], d.Format("2 Jan"))
+	}
+	daily[0] = append(daily[0], "Total hours")
+	detail := [][]any{{"Date", "ID", "Name", "Check-in", "Check-out", "Breaks", "Break time", "Worked", "Hours", "Pay", "Note"}}
+	final := func(unsure bool) string {
+		if unsure {
+			return "No"
+		}
+		return "Yes"
+	}
+
+	for _, row := range p.Rows {
+		summary = append(summary, []any{row.Emp.ID, row.Emp.Name, row.DaysWorked, row.Hours, p.Wage, row.Pay, final(row.Unsure)})
+		line := []any{row.Emp.ID, row.Emp.Name}
+		for _, c := range row.Cells {
+			var v any
+			switch {
+			case !c.Active:
+			case c.Day.State == ptHours:
+				v = int64(c.Day.Hours)
+			case c.Day.State == ptMissing:
+				v = "?"
+			case c.Day.State == ptOpen:
+				v = "…"
+			}
+			line = append(line, v)
+		}
+		daily = append(daily, append(line, row.Hours))
+	}
+	summary = append(summary, []any{"Total", "", p.Total.DaysWorked, p.Total.Hours, nil, p.Total.Pay, final(p.Total.Unsure)})
+
+	for i, day := range p.Days {
+		for _, row := range p.Rows {
+			if c := row.Cells[i]; c.Active && c.Day.State != ptNone {
+				detail = append(detail, detailRow(day, row.Emp, c.Day))
+			}
+		}
+	}
+	return []xlsxSheet{{"Summary", summary}, {"Daily hours", daily}, {"Check-in & out", detail}}
+}
+
+// detailRow is one employee's day on the Check-in & out sheet.
+func detailRow(day time.Time, e Employee, d ptDay) []any {
+	orBlank := func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return clock(t)
+	}
+	var breaks []string
+	for i := 1; i < len(d.Sessions); i++ {
+		breaks = append(breaks, clock(d.Sessions[i-1].End)+"–"+clock(d.Sessions[i].Start))
+	}
+	if len(d.Sessions) == 0 && d.Break > 0 { // the breaks cover the whole day
+		breaks = append(breaks, clock(d.In)+"–"+clock(d.Out))
+	}
+	breakTime := ""
+	if d.Break > 0 {
+		breakTime = hours(d.Break)
+	}
+	var worked, pay any
+	var hrs any
+	if d.State == ptHours {
+		worked, hrs, pay = hours(d.Worked), int64(d.Hours), d.Pay
+	}
+	var notes []string
+	if d.Edited {
+		notes = append(notes, "manager edit")
+	}
+	switch {
+	case d.State == ptMissing && d.In.IsZero():
+		notes = append(notes, "missing check-in")
+	case d.State == ptMissing:
+		notes = append(notes, "missing check-out")
+	case d.State == ptOpen:
+		notes = append(notes, "not over yet")
+	}
+	if d.Capped {
+		notes = append(notes, "capped at "+strconv.Itoa(maxPaidHours))
+	}
+	return []any{day.Format("2 Jan"), e.ID, e.Name, orBlank(d.In), orBlank(d.Out), strings.Join(breaks, ", "), breakTime,
+		worked, hrs, pay, strings.Join(notes, ", ")}
 }
 
 // payMonthParam parses a period's month, empty meaning the default one. A bad value has been answered with 400.

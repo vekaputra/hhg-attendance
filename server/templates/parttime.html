@@ -7,6 +7,7 @@
 <label>Period <select name="month" onchange="this.form.requestSubmit()">{{range .Months}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
 <button type="submit">Show</button>
 </form>
+<a class="btn" href="/part-time/export?month={{.Month}}">Export</a>
 {{end}}
 
 {{define "content"}}

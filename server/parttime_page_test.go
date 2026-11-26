@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"slices"
@@ -384,5 +387,111 @@ func TestPartTimeWageForm(t *testing.T) {
 	}
 	for _, v := range []string{"abc", "-5", "0", "1.5"} {
 		rejected(t, h, session, "/part-time/wage", "wage must be a whole number of rupiah", "wage", v)
+	}
+}
+
+// sheetRows returns each row's XML of every worksheet in an xlsx body, keyed by sheet name.
+func sheetRows(t *testing.T, body []byte) map[string][]string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) string {
+		f, err := zr.Open(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		b, _ := io.ReadAll(f)
+		return string(b)
+	}
+	names := regexp.MustCompile(`<sheet name="([^"]*)"`).FindAllStringSubmatch(read("xl/workbook.xml"), -1)
+	out := map[string][]string{}
+	for i, m := range names {
+		name := strings.ReplaceAll(m[1], "&amp;", "&")
+		out[name] = regexp.MustCompile(`(?s)<row .*?</row>`).FindAllString(read(fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1)), -1)
+	}
+	return out
+}
+
+func rowWith(rows []string, subs ...string) string {
+	for _, r := range rows {
+		if all := func() bool {
+			for _, s := range subs {
+				if !strings.Contains(r, s) {
+					return false
+				}
+			}
+			return true
+		}(); all {
+			return r
+		}
+	}
+	return ""
+}
+
+func TestPartTimeExport(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	w := getWithCookies(h, "/part-time/export?month=2026-11", session)
+	if w.Code != 200 {
+		t.Fatalf("export = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, `filename="Part-time November 2026.xlsx"`) {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	sheets := sheetRows(t, w.Body.Bytes())
+
+	sum := rowWith(sheets["Summary"], ">PT1<")
+	for _, want := range []string{"<v>14</v>", "<v>227500</v>", ">No<"} {
+		if !strings.Contains(sum, want) {
+			t.Errorf("Summary PT1 row lacks %s: %s", want, sum)
+		}
+	}
+
+	daily := rowWith(sheets["Daily hours"], ">PT1<")
+	for _, want := range []string{`<c r="C2"><v>6</v>`, `<c r="E2" t="inlineStr"><is><t xml:space="preserve">?</t>`} {
+		if !strings.Contains(daily, want) {
+			t.Errorf("Daily hours PT1 row lacks %s: %s", want, daily)
+		}
+	}
+
+	detail := sheets["Check-in & out"]
+	d26 := rowWith(detail, ">26 Oct<", ">PT1<")
+	for _, want := range []string{">06:00<", ">15:00<", ">10:00–13:00<", ">3h00m<", ">6h00m<", "<v>6</v>", "<v>97500</v>"} {
+		if !strings.Contains(d26, want) {
+			t.Errorf("26 Oct row lacks %s: %s", want, d26)
+		}
+	}
+	if r := rowWith(detail, ">30 Oct<", ">PT1<"); r != "" {
+		t.Errorf("PT1 has a row for a day with no taps: %s", r)
+	}
+}
+
+func TestPartTimeExportBadMonth(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	if w := getWithCookies(h, "/part-time/export?month=bad", session); w.Code != 400 {
+		t.Errorf("bad month = %d, want 400", w.Code)
+	}
+}
+
+func TestPartTimeWorkbookWholeDayBreak(t *testing.T) {
+	day := date("2026-11-02")
+	p := partTimePage{Days: []time.Time{day}, Rows: []ptRow{{Emp: Employee{ID: "PT1", Name: "Putri"},
+		Cells: []ptCell{{Active: true, Day: ptDay{Date: day, State: ptHours, In: at("2026-11-02 09:00:00"),
+			Out: at("2026-11-02 10:00:00"), Break: time.Hour}}}}}}
+	row := partTimeWorkbook(p)[2].Rows[1]
+	if row[5] != "09:00–10:00" || row[8] != int64(0) {
+		t.Errorf("row = %v, want Breaks 09:00–10:00 and Hours 0", row)
+	}
+}
+
+func TestPartTimePageExportLink(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	if page := getPartTime(t, h, session, "?month=2026-11"); !strings.Contains(page, `href="/part-time/export?month=2026-11"`) {
+		t.Error("page has no Export link")
 	}
 }

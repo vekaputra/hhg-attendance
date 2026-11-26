@@ -106,6 +106,7 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 	pages.HandleFunc("GET /person", srv.person)
 	pages.HandleFunc("GET /events", srv.events)
 	pages.HandleFunc("GET /part-time", srv.partTime)
+	pages.HandleFunc("GET /part-time/export", srv.partTimeExport)
 	limited := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, maxForm)
