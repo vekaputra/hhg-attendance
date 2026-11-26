@@ -461,3 +461,29 @@ func TestRosterRejectsBadInput(t *testing.T) {
 	w := postForm(h, "/roster", formOf("emp", "HHG0012", "day", "2026-10-19", "shift", "x"), session)
 	wantAll(t, w.Body.String(), `value="`+sid+`" selected`, `title="changed by bo on 2026-10-17 at 09:00"`)
 }
+
+func TestEmployeePartTimeForm(t *testing.T) {
+	h, session, st, office, _ := adminFixture(t)
+	org := strconv.FormatInt(office.ID, 10)
+	post := func(path string, f url.Values) {
+		t.Helper()
+		if w := postForm(h, path, f, session); w.Code != 303 {
+			t.Fatalf("POST %s = %d, want 303: %s", path, w.Code, w.Body)
+		}
+	}
+	checked := func(id string) bool {
+		t.Helper()
+		page := getWithCookies(h, "/employees", session).Body.String()
+		return strings.Contains(page, `<form class="fields row" method="post" action="/employees/`+id+`">`) &&
+			strings.Contains(strings.SplitAfter(page, `action="/employees/`+id+`">`)[1], `name="part_time" checked`)
+	}
+
+	post("/employees", formOf("id", "P1", "name", "Pia", "org", org, "part_time", "on"))
+	if got := mustGet(st.Employees(0)); !got[len(got)-1].PartTime || !checked("P1") {
+		t.Errorf("P1 not stored or shown as part-time: %v", got)
+	}
+	post("/employees/P1", formOf("name", "Pia", "org", org))
+	if got := mustGet(st.Employees(0)); got[len(got)-1].PartTime || checked("P1") {
+		t.Errorf("P1 still part-time after saving without the box: %v", got)
+	}
+}

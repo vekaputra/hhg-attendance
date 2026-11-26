@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS employees (
 	org_id       INT NOT NULL,
 	active_from  VARCHAR(10) NOT NULL,
 	active_until VARCHAR(10),
+	part_time    TINYINT(1) NOT NULL DEFAULT 0,
 	FOREIGN KEY (org_id) REFERENCES orgs (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 

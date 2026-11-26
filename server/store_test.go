@@ -232,3 +232,50 @@ func TestOpenStoreAddsEventHash(t *testing.T) {
 		t.Errorf("got %d events, want 2: %+v", len(got), got)
 	}
 }
+
+func TestOpenStoreAddsPartTime(t *testing.T) {
+	driver, dsn, oldEmployees := "sqlite", t.TempDir()+"/a.db", `CREATE TABLE employees (
+		id TEXT PRIMARY KEY, name TEXT NOT NULL, org_id INTEGER NOT NULL, active_from TEXT NOT NULL, active_until TEXT)`
+	if v := os.Getenv("TEST_MYSQL_DSN"); v != "" {
+		driver, dsn = "mysql", v
+		dropTables(t, dsn)
+		oldEmployees = `CREATE TABLE employees (
+			id VARCHAR(32) PRIMARY KEY, name VARCHAR(100) NOT NULL, org_id INT NOT NULL, active_from VARCHAR(10) NOT NULL,
+			active_until VARCHAR(10)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`
+	}
+	old, err := sql.Open(driver, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{oldEmployees, `INSERT INTO employees VALUES ('E1', 'Eve', 1, '2026-10-01', NULL)`} {
+		if _, err := old.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old.Close()
+
+	var s *Store
+	for range 2 { // the second open finds the column already there
+		if s, err = OpenStore(driver, dsn, time.UTC); err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+	}
+	partTime := func() bool {
+		t.Helper()
+		emps, err := s.Employees(0)
+		if err != nil || len(emps) != 1 {
+			t.Fatalf("Employees = %v, %v, want one", emps, err)
+		}
+		return emps[0].PartTime
+	}
+	if partTime() {
+		t.Error("old employee is part-time, want not")
+	}
+	if err := s.UpdateEmployee("E1", "Eve", 1, true); err != nil {
+		t.Fatal(err)
+	}
+	if !partTime() {
+		t.Error("updated employee is not part-time")
+	}
+}

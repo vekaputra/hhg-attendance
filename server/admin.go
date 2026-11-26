@@ -172,10 +172,11 @@ func (srv *server) saveEmployee(w http.ResponseWriter, r *http.Request) {
 		reject("employee " + id + " already exists")
 		return
 	}
+	partTime := r.PostFormValue("part_time") != ""
 	if editing {
-		err = srv.st.UpdateEmployee(id, name, org.ID)
+		err = srv.st.UpdateEmployee(id, name, org.ID, partTime)
 	} else {
-		err = srv.st.AddEmployee(Employee{ID: id, Name: name, OrgID: org.ID, ActiveFrom: srv.today().Format(dateFmt)})
+		err = srv.st.AddEmployee(Employee{ID: id, Name: name, OrgID: org.ID, ActiveFrom: srv.today().Format(dateFmt), PartTime: partTime})
 	}
 	if err != nil {
 		serverError(w, "save employee", err)

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS employees (
 	name         TEXT NOT NULL,
 	org_id       INTEGER NOT NULL REFERENCES orgs (id),
 	active_from  TEXT NOT NULL,
-	active_until TEXT
+	active_until TEXT,
+	part_time    INTEGER NOT NULL DEFAULT 0
 );
 
 -- No foreign key on employee_id: taps from unknown employees are kept.

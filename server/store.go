@@ -86,6 +86,12 @@ func OpenStore(driver, dsn string, loc *time.Location) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureColumn(db, driver, "employees", "part_time",
+		`ALTER TABLE employees ADD COLUMN part_time INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE employees ADD COLUMN part_time TINYINT(1) NOT NULL DEFAULT 0`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.seed(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("seed: %w", err)
@@ -119,23 +125,34 @@ func renameOldLeave(db *sql.DB) error {
 	return nil
 }
 
-// addEventHash adds events.event_hash and its unique index to a database from before the column existed. Old
-// rows keep a NULL hash, which a unique index allows many of.
-func addEventHash(db *sql.DB, driver string) error {
-	columns := `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'event_hash'`
-	add := `ALTER TABLE events ADD COLUMN event_hash TEXT`
+// ensureColumn runs the driver's ALTER TABLE only when the table lacks the column, upgrading a database from
+// before the column existed.
+func ensureColumn(db *sql.DB, driver, table, column, sqliteAdd, mysqlAdd string) error {
+	check, add := `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, sqliteAdd
 	if driver == "mysql" {
-		columns = `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'events' AND COLUMN_NAME = 'event_hash'`
-		add = `ALTER TABLE events ADD COLUMN event_hash CHAR(64) NULL, ADD UNIQUE KEY events_hash (event_hash)`
+		check = `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`
+		add = mysqlAdd
 	}
 	var n int
-	if err := db.QueryRow(columns).Scan(&n); err != nil {
-		return fmt.Errorf("check events.event_hash: %w", err)
+	if err := db.QueryRow(check, table, column).Scan(&n); err != nil {
+		return fmt.Errorf("check %s.%s: %w", table, column, err)
 	}
 	if n == 0 {
 		if _, err := db.Exec(add); err != nil {
-			return fmt.Errorf("add events.event_hash: %w", err)
+			return fmt.Errorf("add %s.%s: %w", table, column, err)
 		}
+	}
+	return nil
+}
+
+// addEventHash adds events.event_hash and its unique index to a database from before the column existed. Old
+// rows keep a NULL hash, which a unique index allows many of.
+func addEventHash(db *sql.DB, driver string) error {
+	err := ensureColumn(db, driver, "events", "event_hash",
+		`ALTER TABLE events ADD COLUMN event_hash TEXT`,
+		`ALTER TABLE events ADD COLUMN event_hash CHAR(64) NULL, ADD UNIQUE KEY events_hash (event_hash)`)
+	if err != nil {
+		return err
 	}
 	if driver == "sqlite" {
 		if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS events_hash ON events (event_hash)`); err != nil {

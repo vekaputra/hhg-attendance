@@ -44,11 +44,12 @@ type Employee struct {
 	ID, Name                string
 	OrgID                   int64
 	ActiveFrom, ActiveUntil string
+	PartTime                bool
 }
 
 func (s *Store) AddEmployee(e Employee) error {
-	_, err := s.db.Exec(`INSERT INTO employees (id, name, org_id, active_from, active_until) VALUES (?, ?, ?, ?, NULLIF(?, ''))`,
-		e.ID, e.Name, e.OrgID, e.ActiveFrom, e.ActiveUntil)
+	_, err := s.db.Exec(`INSERT INTO employees (id, name, org_id, active_from, active_until, part_time) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?)`,
+		e.ID, e.Name, e.OrgID, e.ActiveFrom, e.ActiveUntil, e.PartTime)
 	return err
 }
 
@@ -58,9 +59,10 @@ func (s *Store) DeactivateEmployee(id string, day time.Time) error {
 	return err
 }
 
-// UpdateEmployee changes the employee's name and organisation. The organisation applies to all of their days.
-func (s *Store) UpdateEmployee(id, name string, orgID int64) error {
-	_, err := s.db.Exec(`UPDATE employees SET name = ?, org_id = ? WHERE id = ?`, name, orgID, id)
+// UpdateEmployee changes the employee's name, organisation and part-time flag. The organisation applies to all of
+// their days.
+func (s *Store) UpdateEmployee(id, name string, orgID int64, partTime bool) error {
+	_, err := s.db.Exec(`UPDATE employees SET name = ?, org_id = ?, part_time = ? WHERE id = ?`, name, orgID, partTime, id)
 	return err
 }
 
@@ -72,7 +74,7 @@ func (s *Store) ReactivateEmployee(id string) error {
 
 // Employees returns the organisation's employees (all when orgID is 0) ordered by ID.
 func (s *Store) Employees(orgID int64) ([]Employee, error) {
-	rows, err := s.db.Query(`SELECT id, name, org_id, active_from, COALESCE(active_until, '') FROM employees
+	rows, err := s.db.Query(`SELECT id, name, org_id, active_from, COALESCE(active_until, ''), part_time FROM employees
 		WHERE ? = 0 OR org_id = ? ORDER BY id`, orgID, orgID)
 	if err != nil {
 		return nil, err
@@ -81,7 +83,7 @@ func (s *Store) Employees(orgID int64) ([]Employee, error) {
 	var emps []Employee
 	for rows.Next() {
 		var e Employee
-		if err := rows.Scan(&e.ID, &e.Name, &e.OrgID, &e.ActiveFrom, &e.ActiveUntil); err != nil {
+		if err := rows.Scan(&e.ID, &e.Name, &e.OrgID, &e.ActiveFrom, &e.ActiveUntil, &e.PartTime); err != nil {
 			return nil, err
 		}
 		emps = append(emps, e)
