@@ -500,9 +500,9 @@ func TestPartTimeWorkbookCheckOutBeforeCheckIn(t *testing.T) {
 
 func TestPartTimePageExportLink(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
-	if page := getPartTime(t, h, session, "?month=2026-11"); !strings.Contains(page, `href="/part-time/export?month=2026-11"`) {
-		t.Error("page has no Export link")
-	}
+	// The body is hx-boost'ed: without hx-boost="false" htmx fetches the file and swaps its bytes into the page.
+	wantAll(t, getPartTime(t, h, session, "?month=2026-11"),
+		`<a class="btn" href="/part-time/export?month=2026-11" hx-boost="false" download>Export</a>`)
 }
 
 func TestPartTimeWorkbookLeadingAndTrailingBreak(t *testing.T) {
