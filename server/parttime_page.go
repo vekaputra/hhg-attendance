@@ -16,6 +16,7 @@ type partTimePage struct {
 	Title      string        // "26 Oct – 25 Nov 2026"
 	Months     []monthOption // dropdown, oldest first
 	Days       []time.Time   // first..last
+	MonthHeads []monthHead   // the grid's top header row: each month and how many of Days fall in it
 	Rows       []ptRow
 	Total      ptTotal
 	Wage       int64
@@ -27,6 +28,11 @@ type partTimePage struct {
 
 // breakForm is the add-break dialog's fields, as submitted.
 type breakForm struct{ Emp, StartDate, StartTime, EndDate, EndTime string }
+
+type monthHead struct {
+	Label string // "Oct"
+	Span  int
+}
 
 type monthOption struct {
 	Value, Label string
@@ -79,22 +85,21 @@ func (d ptDay) Mark() string {
 func (d ptDay) Detail() []string {
 	var lines []string
 	if d.State == ptHours {
-		var ss []string
 		for _, s := range d.Sessions {
-			ss = append(ss, clock(s.Start)+" → "+clock(s.End))
+			lines = append(lines, clock(s.Start)+" → "+clock(s.End))
 		}
-		if len(ss) == 0 { // the breaks cover the whole day
-			ss = []string{clock(d.In) + " → " + clock(d.Out)}
+		if len(d.Sessions) == 0 { // the breaks cover the whole day
+			lines = append(lines, clock(d.In)+" → "+clock(d.Out))
 		}
-		lines = append(lines, strings.Join(ss, ", "))
-		worked := "worked " + hours(d.Worked)
+		lines = append(lines, "worked "+hours(d.Worked))
 		if d.Break > 0 {
-			worked += " · break " + hours(d.Break)
+			lines = append(lines, "break "+hours(d.Break))
 		}
-		lines = append(lines, worked)
 		if d.Capped {
 			lines = append(lines, "(capped at "+strconv.Itoa(maxPaidHours)+")")
 		}
+	} else if d.State == ptNone {
+		lines = append(lines, "no taps")
 	} else {
 		known := func(t time.Time) string {
 			if t.IsZero() {
@@ -211,8 +216,8 @@ func (srv *server) partTimeCorrect(w http.ResponseWriter, r *http.Request) {
 	srv.partTimeReject(w, r, month, msg, func(p *partTimePage) string {
 		for ri, row := range p.Rows {
 			for ci, c := range row.Cells {
-				// Only ? and … cells have a fill-in dialog.
-				if row.Emp.ID == emp && c.Active && c.Day.Date.Format(dateFmt) == day && (c.Day.State == ptMissing || c.Day.State == ptOpen) {
+				// –, ? and … cells have a fill-in dialog; days with hours don't.
+				if row.Emp.ID == emp && c.Active && c.Day.Date.Format(dateFmt) == day && c.Day.State != ptHours {
 					p.Rows[ri].Cells[ci].In, p.Rows[ri].Cells[ci].Out = in, out
 					return fmt.Sprintf("pt-%d-%d", ri, ci)
 				}
@@ -324,6 +329,10 @@ func (srv *server) partTimeData(r *http.Request, month, today time.Time) (partTi
 		NewBreak: breakForm{StartDate: last.Format(dateFmt), EndDate: last.Format(dateFmt)}}
 	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
 		page.Days = append(page.Days, d)
+		if n := len(page.MonthHeads); n == 0 || page.MonthHeads[n-1].Label != d.Format("Jan") {
+			page.MonthHeads = append(page.MonthHeads, monthHead{Label: d.Format("Jan")})
+		}
+		page.MonthHeads[len(page.MonthHeads)-1].Span++
 	}
 
 	emps, err := srv.st.Employees(0)
@@ -420,7 +429,7 @@ func (srv *server) partTimeData(r *http.Request, month, today time.Time) (partTi
 	}
 	for _, b := range breaks {
 		if e, ok := shown[b.EmployeeID]; ok {
-			page.Breaks = append(page.Breaks, breakRow{ID: b.ID, Emp: e, Day: b.Day.Format("Mon 2 Jan"),
+			page.Breaks = append(page.Breaks, breakRow{ID: b.ID, Emp: e, Day: b.Day.Format("2 Jan"),
 				Start: breakClock(b.Day, b.Start), End: breakClock(b.Day, b.End), By: b.By})
 		}
 	}

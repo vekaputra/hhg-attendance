@@ -110,7 +110,15 @@ func TestPartTimePageDefaults(t *testing.T) {
 	page := getPartTime(t, h, session, "")
 	wantAll(t, page, "26 Oct – 25 Nov 2026", `<option value="2026-11" selected>November 2026</option>`,
 		`<option value="2026-10">October 2026</option>`, `<option value="2026-12">December 2026</option>`,
-		"Mon 26 Oct", "10:00", "13:00")
+		"10:00", "13:00",
+		// The grid's header: months on the first row (26–31 Oct, 1–25 Nov), day numbers only on the second.
+		`<th scope="colgroup" colspan="6" class="pt-month">Oct</th><th scope="colgroup" colspan="25" class="pt-month">Nov</th>`,
+		`<th scope="col">26</th><th scope="col">27</th>`)
+	for _, s := range []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"} {
+		if strings.Contains(page, ">"+s+" ") || strings.Contains(page, "· "+s) {
+			t.Errorf("page shows the weekday %q", s)
+		}
+	}
 	for _, s := range []string{"25 Oct", "September 2026", "FT1", "Fajar"} {
 		if strings.Contains(page, s) {
 			t.Errorf("page shows %q", s)
@@ -252,6 +260,21 @@ func TestPartTimeFillAfterMidnight(t *testing.T) {
 	}
 }
 
+// A day with no taps (–) opens the same form, so both times can be added from the grid.
+func TestPartTimeAddTimesToEmptyDay(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	page := getPartTime(t, h, session, "")
+	if got := ptCells(t, page, "ptgrid", "PT1"); got[4] != "–" {
+		t.Fatalf("PT1 30 Oct = %q, want –", got[4])
+	}
+	wantAll(t, page, `class="pt add"`, `name="day" value="2026-10-30"`)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-30",
+		"in", "09:00", "in0", "", "out", "15:30", "out0", "")
+	if got := ptCells(t, getPartTime(t, h, session, ""), "ptgrid", "PT1"); got[4] != "7" {
+		t.Errorf("PT1 30 Oct = %q, want 7 (6h30m rounded up)", got[4])
+	}
+}
+
 func TestPartTimeFillReject(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
 	page := rejected(t, h, session, "/part-time/corrections", "check-out must be after check-in",
@@ -277,7 +300,8 @@ func TestPartTimeAddBreak(t *testing.T) {
 	if got := ptCells(t, page, "ptgrid", "PT1"); got[1] != "8" {
 		t.Errorf("PT1 27 Oct = %q, want 8", got[1])
 	}
-	wantAll(t, page, "12:40 → 15:00, 17:00 → 22:23", "worked 7h42m · break 2h00m")
+	// One line per session, then worked time, then break time.
+	wantAll(t, page, "<span>12:40 → 15:00</span><span>17:00 → 22:23</span><span>worked 7h42m</span><span>break 2h00m</span>")
 
 	breaks := mustGet(st.Breaks(date("2026-10-27"), date("2026-10-27")))
 	if len(breaks) != 1 {
@@ -293,7 +317,7 @@ func TestPartTimeAddBreak(t *testing.T) {
 	if b := mustGet(st.Breaks(date("2026-11-12"), date("2026-11-13"))); len(b) != 1 || !b[0].Day.Equal(date("2026-11-12")) {
 		t.Errorf("overnight break = %v, want one on 12 Nov", b)
 	}
-	wantAll(t, getPartTime(t, h, session, ""), "Thu 12 Nov", "00:30 (&#43;1)") // html/template escapes +
+	wantAll(t, getPartTime(t, h, session, ""), "12 Nov", "00:30 (&#43;1)") // html/template escapes +
 }
 
 // A break in another period redirects to that period, where it shows.

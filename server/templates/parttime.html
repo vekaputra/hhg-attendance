@@ -34,14 +34,14 @@
 <div class="card-head"><h2>Daily hours</h2><span class="hint">Tap a day for its times</span></div>
 <div class="scroll">
 <table class="ptgrid">
-<thead><tr><th scope="col" class="name">Employee</th>{{range .Days}}<th scope="col"><small>{{.Format "Mon"}}</small>{{.Format "2 Jan"}}</th>{{end}}</tr></thead>
+<thead><tr><th scope="col" rowspan="2" class="name">Employee</th>{{range .MonthHeads}}<th scope="colgroup" colspan="{{.Span}}" class="pt-month">{{.Label}}</th>{{end}}</tr>
+<tr>{{range .Days}}<th scope="col">{{.Day}}</th>{{end}}</tr></thead>
 <tbody>
 {{range $ri, $row := .Rows}}<tr>
 <th scope="row" class="name">{{.Emp.Name}}<small>{{.Emp.ID}}</small></th>
 {{range $ci, $c := .Cells}}{{if not .Active}}<td class="off"></td>
-{{else}}{{with .Day}}{{$m := .Mark}}{{if eq $m "–"}}<td class="none">–</td>
-{{else if or (eq $m "?") (eq $m "…")}}{{$id := printf "pt-%d-%d" $ri $ci}}<td><button type="button" class="pt{{if eq $m "?"}} miss{{else}} open{{end}}" onclick="this.nextElementSibling.showModal()" title="{{.DetailText}}">{{$m}}</button><dialog id="{{$id}}" class="dlg"><form method="post" action="/part-time/corrections" class="card-body">
-<div class="pt-detail-text"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div>
+{{else}}{{with .Day}}{{$m := .Mark}}{{if or (eq $m "–") (eq $m "?") (eq $m "…")}}{{$id := printf "pt-%d-%d" $ri $ci}}<td{{if eq $m "–"}} class="none"{{end}}><button type="button" class="pt{{if eq $m "?"}} miss{{else if eq $m "…"}} open{{else}} add{{end}}" onclick="this.nextElementSibling.showModal()" title="{{.DetailText}}">{{$m}}</button><dialog id="{{$id}}" class="dlg"><form method="post" action="/part-time/corrections" class="card-body">
+<div class="pt-detail-text"><b>{{$row.Emp.Name}} · {{.Date.Format "2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div>
 {{if eq $.Reopen $id}}<p class="warn" role="alert">{{$.Error}}</p>{{end}}
 <input type="hidden" name="month" value="{{$.Month}}"><input type="hidden" name="emp" value="{{$row.Emp.ID}}"><input type="hidden" name="day" value="{{.Date.Format "2006-01-02"}}">
 <input type="hidden" name="in0" value="{{if not .In.IsZero}}{{clock .In}}{{end}}"><input type="hidden" name="out0" value="{{if not .Out.IsZero}}{{clock .Out}}{{end}}">
@@ -49,12 +49,12 @@
 <p class="note">A time before 03:00 is the next morning.</p>
 <div class="fields"><button type="submit" class="primary">Save</button><button type="button" onclick="this.closest('dialog').close()">Cancel</button></div>
 </form></dialog></td>
-{{else}}<td><button type="button" class="pt" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
+{{else}}<td><button type="button" class="pt" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
 {{end}}{{end}}{{end}}{{end}}</tr>
 {{end}}</tbody>
 </table>
 </div>
-<p class="card-foot note">Hours are worked time minus breaks, rounded up and capped at 8. – no taps · ? a check-in or check-out is missing · … the day is not over yet. Tap ? or … to fill in the missing time.</p>
+<p class="card-foot note">Hours are worked time minus breaks, rounded up and capped at 8. – no taps · ? a check-in or check-out is missing · … the day is not over yet. Tap – to add a check-in and check-out, or ? or … to fill in the missing time.</p>
 </section>
 <section class="card">
 <div class="card-head"><h2>Breaks</h2><button type="button" onclick="document.getElementById('add-break').showModal()">Add break</button></div>
