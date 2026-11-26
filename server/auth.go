@@ -227,7 +227,7 @@ func loginHandlers(st *Store, lim *limiter, now func() time.Time, tmpl *template
 		}
 		lim.reset(user)
 		setSessionCookie(w, token, int(sessionTTL.Seconds()))
-		http.Redirect(w, r, "/calendar", http.StatusSeeOther)
+		http.Redirect(w, r, "/part-time", http.StatusSeeOther)
 	}
 	logout = func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookie); err == nil {

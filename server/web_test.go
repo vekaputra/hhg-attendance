@@ -127,7 +127,7 @@ func TestCalendarViews(t *testing.T) {
 	month := get(fmt.Sprintf("org=%d&view=month&at=2026-10-05", office.ID))
 	wantAll(t, month, "HHG0002", "12m late", "HHG0004", "absent",
 		"ana", `action="/logout"`, "/static/htmx.min.js", `hx-boost="true"`,
-		`"historyCacheSize":0`, `href="/person"`)
+		`"historyCacheSize":0`, `href="/part-time"`)
 	// October 2026 starts on a Thursday and ends on a Saturday: 3 blanks before, 1 after.
 	if n := strings.Count(month, `class="blank"`); n != 4 {
 		t.Errorf("month grid has %d blank cells, want 4", n)
@@ -146,8 +146,8 @@ func TestCalendarViews(t *testing.T) {
 	if w := getWithCookies(h, "/calendar"); w.Code != 303 {
 		t.Errorf("GET /calendar without a session = %d, want 303", w.Code)
 	}
-	if w := getWithCookies(h, "/", session); w.Code != 303 || w.Header().Get("Location") != "/calendar" {
-		t.Errorf("GET / = %d to %q, want 303 to /calendar", w.Code, w.Header().Get("Location"))
+	if w := getWithCookies(h, "/", session); w.Code != 303 || w.Header().Get("Location") != "/part-time" {
+		t.Errorf("GET / = %d to %q, want 303 to /part-time", w.Code, w.Header().Get("Location"))
 	}
 	if body := get(""); !strings.Contains(body, "October 2026") || !strings.Contains(body, "Office") {
 		t.Error("defaults should be the first org's month containing today")
@@ -227,20 +227,27 @@ func TestStylesheet(t *testing.T) {
 
 var navCurrentRE = regexp.MustCompile(`<a href="([^"]+)"[^>]* aria-current="page"`)
 
-// Every page marks its own sidebar link as the current page, and no other link, including after a rejected POST.
+// Every page in the sidebar marks its own link as the current page, and no other link. Calendar and People are no
+// longer in the sidebar but stay reachable by URL, so they mark nothing, including after a rejected POST.
 func TestActiveNav(t *testing.T) {
 	h, session, _, _ := webFixture(t)
 	check := func(from string, w *httptest.ResponseRecorder, want string) {
 		t.Helper()
 		got := navCurrentRE.FindAllStringSubmatch(w.Body.String(), -1)
-		if len(got) != 1 || got[0][1] != want {
+		if want == "" && len(got) != 0 || want != "" && (len(got) != 1 || got[0][1] != want) {
 			t.Errorf("%s marks %q as the current page, want only %q", from, got, want)
 		}
 	}
-	for _, path := range []string{"/calendar", "/person", "/events", "/part-time", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
+	for _, path := range []string{"/events", "/part-time", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
 		check("GET "+path, getWithCookies(h, path, session), path)
 	}
-	check("rejected POST /corrections", postCorrection(h, session, "NOPE", "2026-10-07", "", "20:00"), "/person")
+	for _, path := range []string{"/calendar", "/person"} {
+		check("GET "+path, getWithCookies(h, path, session), "")
+	}
+	check("rejected POST /corrections", postCorrection(h, session, "NOPE", "2026-10-07", "", "20:00"), "")
+	if body := getWithCookies(h, "/events", session).Body.String(); strings.Contains(body, `href="/calendar"`) || strings.Contains(body, `href="/person"`) {
+		t.Error("the sidebar still links Calendar or People")
+	}
 }
 
 var summaryRE = regexp.MustCompile(`<dt>([^<]+)</dt>\s*<dd class="value">(\d+)</dd>`)

@@ -100,7 +100,7 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 
 	pages := http.NewServeMux()
 	pages.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/calendar", http.StatusSeeOther)
+		http.Redirect(w, r, "/part-time", http.StatusSeeOther)
 	})
 	pages.HandleFunc("GET /calendar", srv.calendar)
 	pages.HandleFunc("GET /person", srv.person)

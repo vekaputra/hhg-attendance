@@ -140,8 +140,8 @@ func TestLoginFlow(t *testing.T) {
 	}
 
 	w = postCreds(post, "/login", "ana", "correct horse")
-	if w.Code != 303 || w.Header().Get("Location") != "/calendar" {
-		t.Fatalf("login = %d to %q, want 303 to /calendar", w.Code, w.Header().Get("Location"))
+	if w.Code != 303 || w.Header().Get("Location") != "/part-time" {
+		t.Fatalf("login = %d to %q, want 303 to /part-time", w.Code, w.Header().Get("Location"))
 	}
 	c := sessionFrom(t, w)
 	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != "/" || c.MaxAge != int(sessionTTL.Seconds()) {
