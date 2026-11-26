@@ -110,3 +110,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 	user_name  VARCHAR(100) NOT NULL,
 	expires_at VARCHAR(19) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS breaks (
+	id          INT AUTO_INCREMENT PRIMARY KEY,
+	employee_id VARCHAR(32) NOT NULL,
+	day         VARCHAR(10) NOT NULL,
+	start_at    VARCHAR(19) NOT NULL,
+	end_at      VARCHAR(19) NOT NULL,
+	created_by  VARCHAR(100) NOT NULL,
+	created_at  VARCHAR(19) NOT NULL,
+	INDEX breaks_day (day),
+	FOREIGN KEY (employee_id) REFERENCES employees (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS settings (
+	name  VARCHAR(50) PRIMARY KEY,
+	value VARCHAR(200) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

@@ -101,3 +101,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 	user_name  TEXT NOT NULL,
 	expires_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS breaks (
+	id          INTEGER PRIMARY KEY,
+	employee_id TEXT NOT NULL REFERENCES employees (id),
+	day         TEXT NOT NULL,
+	start_at    TEXT NOT NULL,
+	end_at      TEXT NOT NULL,
+	created_by  TEXT NOT NULL,
+	created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS breaks_day ON breaks (day);
+
+CREATE TABLE IF NOT EXISTS settings (
+	name  TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);

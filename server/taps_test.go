@@ -35,7 +35,7 @@ func dropTables(t *testing.T, dsn string) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, table := range []string{"sessions", "users", "corrections", "holidays", "leaves", "roster", "devices", "events", "taps", "employees", "shifts", "orgs"} {
+	for _, table := range []string{"sessions", "users", "settings", "breaks", "corrections", "holidays", "leaves", "roster", "devices", "events", "taps", "employees", "shifts", "orgs"} {
 		if _, err := db.Exec("DROP TABLE IF EXISTS " + table); err != nil {
 			t.Fatal(err)
 		}
