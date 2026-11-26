@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -419,4 +420,42 @@ func TestCorrectionKeepsOtherField(t *testing.T) {
 		t.Errorf("check-out 08:30 before the corrected check-in = %d, want 400", code)
 	}
 	wantAll(t, getPerson(h, session), "09:00 → 10:00")
+}
+
+func TestSaveCorrectionShared(t *testing.T) {
+	st := newReportStore(t)
+	now := at("2026-10-12 12:00:00")
+	orgs, err := st.Orgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	emp := Employee{ID: "HHG0012", Name: "Gita", OrgID: orgs[1].ID, ActiveFrom: "2026-10-01"}
+	if err := st.AddEmployee(emp); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertTap(Tap{EmployeeID: emp.ID, DeviceID: "d", SerialNo: "1", Time: at("2026-10-07 10:55:00")}, now); err != nil {
+		t.Fatal(err)
+	}
+	srv := &server{st: st, loc: testLoc, now: func() time.Time { return now }}
+	emps := []Employee{emp}
+	day := date("2026-10-07")
+
+	if d, msg, err := srv.applyCorrection(emps, emp.ID, "2026-10-07", "", "10:00", "ana"); err != nil || msg != "check-out must be after check-in" || !d.Equal(day) {
+		t.Fatalf("early check-out = %v, %q, %v; want the day and a rejection", d, msg, err)
+	}
+	if fixes, err := st.Corrections(emp.ID, day, day); err != nil || len(fixes) != 0 {
+		t.Fatalf("a rejected correction was saved: %v, %v", fixes, err)
+	}
+
+	if _, msg, err := srv.applyCorrection(emps, emp.ID, "2026-10-07", "", "20:00", "ana"); err != nil || msg != "" {
+		t.Fatalf("valid check-out = %q, %v; want saved", msg, err)
+	}
+	rows, err := st.Report(0, emp.ID, day, day, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := rows[0].Days[0]
+	if !got.Out.Equal(at("2026-10-07 20:00:00")) || !slices.Contains(got.Flags, FlagManagerEdit) {
+		t.Errorf("report after correction: out %v flags %v", got.Out, got.Flags)
+	}
 }

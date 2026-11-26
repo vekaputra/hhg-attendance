@@ -407,73 +407,79 @@ func (srv *server) correct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PostFormValue("emp")
+	day, msg, err := srv.applyCorrection(emps, id, r.PostFormValue("day"), r.PostFormValue("in"), r.PostFormValue("out"), currentUser(r))
+	if err != nil {
+		serverError(w, "correction", err)
+		return
+	}
+	if msg == "" {
+		http.Redirect(w, r, personURL(id, day), http.StatusSeeOther)
+		return
+	}
 	var emp Employee // an unknown employee shows the first one
-	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == id })
-	if i >= 0 {
+	if i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == id }); i >= 0 {
 		emp = emps[i]
 	} else if len(emps) > 0 {
 		emp = emps[0]
 	}
 	month := monthOf(attendanceDate(srv.now().In(srv.loc)))
-	reject := func(msg string) {
-		page, err := srv.personData(r, emps, emp, month)
-		if err != nil {
-			serverError(w, "person", err)
-			return
-		}
-		page.Error = msg
-		srv.render(w, http.StatusBadRequest, "person.html", page)
+	if !day.IsZero() {
+		month = monthOf(day)
 	}
+	page, err := srv.personData(r, emps, emp, month)
+	if err != nil {
+		serverError(w, "person", err)
+		return
+	}
+	page.Error = msg
+	srv.render(w, http.StatusBadRequest, "person.html", page)
+}
 
+// applyCorrection validates and saves a manager's fix to one day, exactly as POST /corrections does.
+// msg is a user-facing rejection ("bad check-in time", ...) and nothing was saved; err is a server error.
+// date is the parsed day, set whenever it parsed, even on a rejection.
+func (srv *server) applyCorrection(emps []Employee, empID, dayStr, inStr, outStr, by string) (date time.Time, msg string, err error) {
+	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == empID })
 	if i < 0 {
-		reject("unknown employee")
-		return
+		return time.Time{}, "unknown employee", nil
 	}
-	day, err := time.ParseInLocation(dateFmt, r.PostFormValue("day"), srv.loc)
+	emp := emps[i]
+	day, err := time.ParseInLocation(dateFmt, dayStr, srv.loc)
 	if err != nil {
-		reject("bad day")
-		return
+		return time.Time{}, "bad day", nil
 	}
-	month = monthOf(day)
 	if ds := day.Format(dateFmt); ds < emp.ActiveFrom || (emp.ActiveUntil != "" && ds > emp.ActiveUntil) {
-		reject("employee was not active that day")
-		return
+		return day, "employee was not active that day", nil
 	}
-	in, err := attendanceTime(day, r.PostFormValue("in"))
+	in, err := attendanceTime(day, inStr)
 	if err != nil {
-		reject("bad check-in time")
-		return
+		return day, "bad check-in time", nil
 	}
-	out, err := attendanceTime(day, r.PostFormValue("out"))
+	out, err := attendanceTime(day, outStr)
 	if err != nil {
-		reject("bad check-out time")
-		return
+		return day, "bad check-out time", nil
 	}
 
 	// The saved correction is the form over the existing one, so its in/out are what Report will show.
-	rows, err := srv.st.Report(0, id, day, day, srv.now())
+	rows, err := srv.st.Report(0, empID, day, day, srv.now())
 	if err != nil {
-		serverError(w, "report", err)
-		return
+		return day, "", fmt.Errorf("report: %w", err)
 	}
 	cur := rows[0].Days[0] // the active-period check above guarantees a row
 	if effIn, effOut := cmp.Or(in, cur.In), cmp.Or(out, cur.Out); !effIn.IsZero() && !effOut.IsZero() && !effOut.After(effIn) {
-		reject("check-out must be after check-in")
-		return
+		return day, "check-out must be after check-in", nil
 	}
-	fix := Correction{EmployeeID: id, Day: day, By: currentUser(r), At: srv.now()}
+	fix := Correction{EmployeeID: empID, Day: day, By: by, At: srv.now()}
 	if !in.IsZero() || !out.IsZero() {
-		fixes, err := srv.st.Corrections(id, day, day)
+		fixes, err := srv.st.Corrections(empID, day, day)
 		if err != nil {
-			serverError(w, "corrections", err)
-			return
+			return day, "", fmt.Errorf("corrections: %w", err)
 		}
 		old := fixes[day.Format(dateFmt)]
 		fix.In, fix.Out = cmp.Or(in, old.In), cmp.Or(out, old.Out)
 	}
 	if err := srv.st.SaveCorrection(fix); err != nil {
-		serverError(w, "save correction", err)
-		return
+		return day, "", fmt.Errorf("save correction: %w", err)
 	}
-	http.Redirect(w, r, personURL(id, day), http.StatusSeeOther)
+	return day, "", nil
 }
