@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,7 +11,7 @@ import (
 	"time"
 )
 
-var loginTmpl = template.Must(template.ParseFiles("templates/login.html"))
+var loginTmpl = parseTemplates()["login.html"]
 
 func postCreds(h http.HandlerFunc, path, user, pass string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	form := url.Values{"username": {user}, "password": {pass}}

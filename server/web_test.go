@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"net/http"
@@ -201,11 +203,26 @@ func TestStylesheet(t *testing.T) {
 		"login":    getWithCookies(h, "/login").Body.String(),
 		"calendar": getWithCookies(h, "/calendar", session).Body.String(),
 	} {
-		wantAll(t, page, `href="/static/style.css"`)
 		if strings.Contains(page, "mvp.css") {
 			t.Errorf("%s page still links mvp.css", name)
 		}
 	}
+
+	// Asset links carry a hash of the file, so a deploy that changes it makes browsers fetch it again.
+	page := getWithCookies(h, "/calendar", session).Body.String()
+	for _, file := range []string{"style.css", "htmx.min.js"} {
+		b, err := staticFS.ReadFile("static/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(b)
+		url := "/static/" + file + "?v=" + hex.EncodeToString(sum[:4])
+		wantAll(t, page, `"`+url+`"`)
+		if w := getWithCookies(h, url); w.Code != 200 {
+			t.Errorf("GET %s = %d, want 200", url, w.Code)
+		}
+	}
+	wantAll(t, getWithCookies(h, "/login").Body.String(), `href="/static/style.css?v=`)
 }
 
 var navCurrentRE = regexp.MustCompile(`<a href="([^"]+)"[^>]* aria-current="page"`)

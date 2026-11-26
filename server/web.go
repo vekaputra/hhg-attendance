@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -45,7 +47,28 @@ type server struct {
 
 // parseTemplates parses the embedded templates once at startup; a broken template is a bug, so it panics.
 func parseTemplates() map[string]*template.Template {
-	funcs := template.FuncMap{"hours": hours, "mins": mins, "clock": clock, "rupiah": rupiah}
+	// static links a file with a hash of its content, so browsers fetch it again whenever a deploy changes it.
+	assets := map[string]string{}
+	statics, err := fs.Glob(staticFS, "static/*")
+	if err != nil {
+		panic(err)
+	}
+	for _, file := range statics {
+		b, err := staticFS.ReadFile(file)
+		if err != nil {
+			panic(err)
+		}
+		sum := sha256.Sum256(b)
+		assets[path.Base(file)] = "/" + file + "?v=" + hex.EncodeToString(sum[:4])
+	}
+	static := func(name string) (string, error) {
+		if u, ok := assets[name]; ok {
+			return u, nil
+		}
+		return "", fmt.Errorf("no static file %q", name)
+	}
+
+	funcs := template.FuncMap{"hours": hours, "mins": mins, "clock": clock, "rupiah": rupiah, "static": static}
 	files, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
 		panic(err)
