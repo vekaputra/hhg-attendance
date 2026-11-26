@@ -83,6 +83,16 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 	pages.HandleFunc("GET /person", srv.person)
 	pages.HandleFunc("GET /events", srv.events)
 	pages.HandleFunc("GET /part-time", srv.partTime)
+	limited := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxForm)
+			h(w, r)
+		}
+	}
+	pages.HandleFunc("POST /part-time/corrections", limited(srv.partTimeCorrect))
+	pages.HandleFunc("POST /part-time/breaks", limited(srv.partTimeAddBreak))
+	pages.HandleFunc("POST /part-time/breaks/{id}/delete", limited(srv.partTimeDeleteBreak))
+	pages.HandleFunc("POST /part-time/wage", limited(srv.partTimeSetWage))
 	pages.HandleFunc("POST /corrections", srv.correct)
 	pages.HandleFunc("POST /logout", logout)
 	srv.adminRoutes(pages)

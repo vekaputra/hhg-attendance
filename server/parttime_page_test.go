@@ -167,3 +167,127 @@ func TestPartTimeFlagOff(t *testing.T) {
 		t.Errorf("PT1 grid = %q, want 6 on 26 Oct", got)
 	}
 }
+
+func postPartTime(t *testing.T, h http.Handler, session *http.Cookie, path string, kv ...string) {
+	t.Helper()
+	w := postForm(h, path, formOf(append([]string{"month", "2026-11"}, kv...)...), session)
+	if w.Code != 303 || w.Header().Get("Location") != "/part-time?month=2026-11" {
+		t.Fatalf("POST %s = %d to %q, want 303 to the November period: %s", path, w.Code, w.Header().Get("Location"), w.Body)
+	}
+}
+
+// rejected posts a form that must be refused with 400 and msg, and returns the re-rendered page.
+func rejected(t *testing.T, h http.Handler, session *http.Cookie, path, msg string, kv ...string) string {
+	t.Helper()
+	w := postForm(h, path, formOf(append([]string{"month", "2026-11"}, kv...)...), session)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), msg) {
+		t.Errorf("POST %s %v = %d, want 400 with %q", path, kv, w.Code, msg)
+	}
+	return w.Body.String()
+}
+
+func TestPartTimeFillMissing(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-28", "in", "09:00", "out", "17:30")
+	page := getPartTime(t, h, session, "")
+	if got := ptCells(t, page, "ptgrid", "PT1"); got[2] != "8" || got[3] != "?" {
+		t.Errorf("PT1 grid = %q, want 28 Oct 8 and 29 Oct still ?", got[:4])
+	}
+	wantAll(t, page, "09:00 → 17:30", "worked 8h30m", "(capped at 8)")
+	if got := ptCells(t, page, "data ptsum", "PT1"); got[1] != "22 +?" {
+		t.Errorf("PT1 hours = %q, want 22 +?", got[1])
+	}
+	wantAll(t, getWithCookies(h, "/person?emp=PT1&month=2026-10", session).Body.String(), "manager edit")
+}
+
+func TestPartTimeFillAfterMidnight(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-29", "in", "18:00", "out", "00:30")
+	if got := ptCells(t, getPartTime(t, h, session, ""), "ptgrid", "PT1"); got[3] != "7" {
+		t.Errorf("PT1 29 Oct = %q, want 7", got[3])
+	}
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-28", "in", "09:00", "out", "17:30")
+	if got := ptCells(t, getPartTime(t, h, session, ""), "data ptsum", "PT1"); got[1] != "29" {
+		t.Errorf("PT1 hours = %q, want 29 with no +?", got[1])
+	}
+}
+
+func TestPartTimeFillReject(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	page := rejected(t, h, session, "/part-time/corrections", "check-out must be after check-in",
+		"emp", "PT1", "day", "2026-10-28", "in", "09:00", "out", "08:00")
+	// The message and the submitted values are in the dialog that the page reopens.
+	before, after, _ := strings.Cut(page, "check-out must be after check-in")
+	i := strings.LastIndex(before, "<dialog")
+	if i < 0 {
+		t.Fatal("page has no dialog before the message")
+	}
+	after, _, _ = strings.Cut(after, "</dialog>")
+	if strings.Contains(before[i:], "</dialog>") || !strings.Contains(after, `value="08:00"`) {
+		t.Errorf("message is not inside the dialog with the submitted values: %s", before[i:])
+	}
+	wantAll(t, page, ".showModal()</script>")
+}
+
+func TestPartTimeAddBreak(t *testing.T) {
+	h, session, st, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/breaks", "emp", "PT1", "start_date", "2026-10-27", "start_time", "15:00",
+		"end_date", "2026-10-27", "end_time", "17:00")
+	page := getPartTime(t, h, session, "")
+	if got := ptCells(t, page, "ptgrid", "PT1"); got[1] != "8" {
+		t.Errorf("PT1 27 Oct = %q, want 8", got[1])
+	}
+	wantAll(t, page, "12:40 → 15:00, 17:00 → 22:23", "worked 7h42m · break 2h00m")
+
+	breaks := mustGet(st.Breaks(date("2026-10-27"), date("2026-10-27")))
+	if len(breaks) != 1 {
+		t.Fatalf("breaks on 27 Oct = %v, want 1", breaks)
+	}
+	postPartTime(t, h, session, fmt.Sprintf("/part-time/breaks/%d/delete", breaks[0].ID))
+	if page := getPartTime(t, h, session, ""); strings.Contains(page, "break 2h00m") || !strings.Contains(page, "12:40 → 22:23") {
+		t.Error("27 Oct still shows the deleted break")
+	}
+
+	postPartTime(t, h, session, "/part-time/breaks", "emp", "PT2", "start_date", "2026-11-12", "start_time", "23:00",
+		"end_date", "2026-11-13", "end_time", "00:30")
+	if b := mustGet(st.Breaks(date("2026-11-12"), date("2026-11-13"))); len(b) != 1 || !b[0].Day.Equal(date("2026-11-12")) {
+		t.Errorf("overnight break = %v, want one on 12 Nov", b)
+	}
+	wantAll(t, getPartTime(t, h, session, ""), "Thu 12 Nov", "00:30 (&#43;1)") // html/template escapes +
+}
+
+func TestPartTimeBreakRejects(t *testing.T) {
+	h, session, st, _ := partTimeFixture(t)
+	for _, c := range []struct{ emp, sd, st, ed, et, msg string }{
+		{"NOPE", "2026-10-27", "15:00", "2026-10-27", "17:00", "unknown employee"},
+		{"FT1", "2026-10-27", "15:00", "2026-10-27", "17:00", "breaks are only for part-time employees"},
+		{"PT1", "2026-10-27", "3pm", "2026-10-27", "17:00", "bad break start"},
+		{"PT1", "2026-10-27", "15:00", "27-10-2026", "17:00", "bad break end"},
+		{"PT1", "2026-10-27", "15:00", "2026-10-27", "15:00", "break must end after it starts"},
+		{"PT1", "2026-10-28", "02:30", "2026-10-28", "03:30", "a break must end by 03:00 the next morning"},
+		{"PT2", "2026-11-05", "12:00", "2026-11-05", "13:00", "employee was not active that day"},
+	} {
+		rejected(t, h, session, "/part-time/breaks", c.msg,
+			"emp", c.emp, "start_date", c.sd, "start_time", c.st, "end_date", c.ed, "end_time", c.et)
+	}
+	if b := mustGet(st.Breaks(date("2026-10-01"), date("2026-11-30"))); len(b) != 1 {
+		t.Errorf("breaks = %v, want only the fixture's", b)
+	}
+	// Ending exactly when the attendance day ends is allowed.
+	postPartTime(t, h, session, "/part-time/breaks", "emp", "PT1", "start_date", "2026-10-27", "start_time", "23:00",
+		"end_date", "2026-10-28", "end_time", "03:00")
+}
+
+func TestPartTimeWageForm(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/wage", "wage", "150000")
+	if got := ptCells(t, getPartTime(t, h, session, ""), "data ptsum", "PT1"); got[3] != "Rp 262.500 +?" {
+		t.Errorf("PT1 November pay = %q, want Rp 262.500 +?", got[3])
+	}
+	if got := ptCells(t, getPartTime(t, h, session, "?month=2026-10"), "data ptsum", "PT1"); got[3] != "Rp 150.000" {
+		t.Errorf("PT1 October pay = %q, want Rp 150.000", got[3])
+	}
+	for _, v := range []string{"abc", "-5", "0", "1.5"} {
+		rejected(t, h, session, "/part-time/wage", "wage must be a whole number of rupiah", "wage", v)
+	}
+}

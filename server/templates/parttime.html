@@ -4,18 +4,21 @@
 
 {{define "tools"}}
 <form method="get" action="/part-time">
-<label>Period <select name="month">{{range .Months}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+<label>Period <select name="month" onchange="this.form.requestSubmit()">{{range .Months}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
 <button type="submit">Show</button>
 </form>
 {{end}}
 
 {{define "content"}}
-{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{if and .Error (not .Reopen)}}<p class="warn" role="alert">{{.Error}}</p>
 {{end -}}
 {{if not .Rows}}<section class="card"><div class="card-body"><p>No part-time employees were active in this period.</p></div></section>
 {{else}}
 <section class="card">
-<div class="card-head"><h2>Summary</h2><span class="hint">Daily wage {{rupiah .Wage}} for 8 hours</span></div>
+<div class="card-head"><h2>Summary</h2>
+<form method="post" action="/part-time/wage" class="fields"><input type="hidden" name="month" value="{{.Month}}">
+<label>Daily wage, for 8 hours <input type="number" name="wage" value="{{.Wage}}" min="1" max="100000000" step="1" required></label>
+<button type="submit">Save</button></form></div>
 <div class="scroll">
 <table class="data ptsum">
 <thead><tr><th scope="col" class="name">Employee</th><th scope="col">Days</th><th scope="col">Hours</th><th scope="col">Daily wage</th><th scope="col">Pay</th></tr></thead>
@@ -37,20 +40,38 @@
 <th scope="row" class="name">{{.Emp.Name}}<small>{{.Emp.ID}}</small></th>
 {{range $ci, $c := .Cells}}{{if not .Active}}<td class="off"></td>
 {{else}}{{with .Day}}{{$m := .Mark}}{{if eq $m "–"}}<td class="none">–</td>
-{{else}}<td><button type="button" class="pt{{if eq $m "?"}} miss{{else if eq $m "…"}} open{{end}}" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
+{{else if or (eq $m "?") (eq $m "…")}}{{$id := printf "pt-%d-%d" $ri $ci}}<td><button type="button" class="pt{{if eq $m "?"}} miss{{else}} open{{end}}" onclick="this.nextElementSibling.showModal()" title="{{.DetailText}}">{{$m}}</button><dialog id="{{$id}}" class="dlg"><form method="post" action="/part-time/corrections" class="card-body">
+<div class="pt-detail-text"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div>
+{{if eq $.Reopen $id}}<p class="warn" role="alert">{{$.Error}}</p>{{end}}
+<input type="hidden" name="month" value="{{$.Month}}"><input type="hidden" name="emp" value="{{$row.Emp.ID}}"><input type="hidden" name="day" value="{{.Date.Format "2006-01-02"}}">
+<div class="fields"><label>Check-in <input type="time" name="in" value="{{$c.In}}"></label><label>Check-out <input type="time" name="out" value="{{$c.Out}}"></label></div>
+<p class="note">A time before 03:00 is the next morning.</p>
+<div class="fields"><button type="submit" class="primary">Save</button><button type="button" onclick="this.closest('dialog').close()">Cancel</button></div>
+</form></dialog></td>
+{{else}}<td><button type="button" class="pt" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
 {{end}}{{end}}{{end}}{{end}}</tr>
 {{end}}</tbody>
 </table>
 </div>
-<p class="card-foot note">Hours are worked time minus breaks, rounded up and capped at 8. – no taps · ? a check-in or check-out is missing · … the day is not over yet.</p>
+<p class="card-foot note">Hours are worked time minus breaks, rounded up and capped at 8. – no taps · ? a check-in or check-out is missing · … the day is not over yet. Tap ? or … to fill in the missing time.</p>
 </section>
 <section class="card">
-<div class="card-head"><h2>Breaks</h2></div>
+<div class="card-head"><h2>Breaks</h2><button type="button" onclick="document.getElementById('add-break').showModal()">Add break</button></div>
+<dialog id="add-break" class="dlg"><form method="post" action="/part-time/breaks" class="card-body">
+<b>Add a break</b>
+{{if eq .Reopen "add-break"}}<p class="warn" role="alert">{{.Error}}</p>{{end}}
+<input type="hidden" name="month" value="{{.Month}}">
+<div class="fields"><label>Employee <select name="emp" required>{{range .PartTimers}}<option value="{{.ID}}"{{if eq .ID $.NewBreak.Emp}} selected{{end}}>{{.ID}} {{.Name}}</option>{{end}}</select></label></div>
+<div class="fields"><label>Start date <input type="date" name="start_date" value="{{.NewBreak.StartDate}}" required></label><label>Start time <input type="time" name="start_time" value="{{.NewBreak.StartTime}}" required></label></div>
+<div class="fields"><label>End date <input type="date" name="end_date" value="{{.NewBreak.EndDate}}" required></label><label>End time <input type="time" name="end_time" value="{{.NewBreak.EndTime}}" required></label></div>
+<p class="note">A break belongs to the day it starts and must end by 03:00 the next morning.</p>
+<div class="fields"><button type="submit" class="primary">Add break</button><button type="button" onclick="this.closest('dialog').close()">Cancel</button></div>
+</form></dialog>
 {{if .Breaks}}<div class="scroll">
 <table class="data">
-<thead><tr><th scope="col">Employee</th><th scope="col">Day</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">Added by</th></tr></thead>
+<thead><tr><th scope="col">Employee</th><th scope="col">Day</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">Added by</th><th scope="col"></th></tr></thead>
 <tbody>
-{{range .Breaks}}<tr><td>{{.Emp.ID}} {{.Emp.Name}}</td><td>{{.Day}}</td><td>{{.Start}}</td><td>{{.End}}</td><td>{{.By}}</td></tr>
+{{range .Breaks}}<tr><td>{{.Emp.ID}} {{.Emp.Name}}</td><td>{{.Day}}</td><td>{{.Start}}</td><td>{{.End}}</td><td>{{.By}}</td><td><form method="post" action="/part-time/breaks/{{.ID}}/delete" hx-confirm="Delete {{.Emp.Name}}'s break on {{.Day}}, {{.Start}} to {{.End}}?"><input type="hidden" name="month" value="{{$.Month}}"><button type="submit" class="sm danger">Delete</button></form></td></tr>
 {{end}}</tbody>
 </table>
 </div>
@@ -58,4 +79,5 @@
 {{end}}
 </section>
 {{end}}
+{{if .Reopen}}<script>document.getElementById({{.Reopen}}).showModal()</script>{{end}}
 {{end}}

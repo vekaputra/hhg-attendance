@@ -155,6 +155,11 @@ tfoot > * > * { border-top: 1px solid var(--border-strong); font-weight: 600; }
 .pt-detail { width: min(300px, calc(100vw - 32px)); padding: 12px 14px; text-align: left; white-space: normal; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: 0 8px 24px rgb(0 0 0 / .15); }
 .pt-detail span, .pt-detail b { display: block; }
 .pt-detail b { margin-bottom: 4px; }
+.pt-detail-text span, .pt-detail-text b { display: block; }
+
+/* Dialogs: a card-sized form in the middle of the screen */
+.dlg { width: min(420px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); text-align: left; white-space: normal; box-shadow: 0 8px 24px rgb(0 0 0 / .15); }
+.dlg::backdrop { background: rgb(0 0 0 / .35); }
 
 /* Forms */
 form { margin: 0; }
