@@ -143,8 +143,24 @@ working directory. Back up with
 
 which is safe while the app runs; it fails if the target file already exists.
 
+## Part-time summary
+
+The sidebar item "Part-time" (`/part-time`) shows hours and pay for part-time staff. Tick "Part-time" on an
+employee on the Employees page to include them.
+
+- A pay period is named by the month of its 25th and runs from the 26th of the month before through the 25th.
+  The page opens on the current calendar month.
+- Hours for a day are the time between check-in and check-out minus breaks, to the nearest minute, rounded up to
+  whole hours and capped at 8. A day's pay is the daily wage x hours / 8.
+- A day with a missing check-in or check-out (`?`, or `…` while the day is still running) pays nothing, and the
+  row and total are marked `+?`. Tap the cell to fill in the missing time; it is saved as an ordinary correction
+  and shows on People.
+- Breaks are added on the page, for part-timers only. A break belongs to the day it starts and must end by 03:00
+  the next morning. Overlapping breaks count once.
+- The daily wage (Rp 130.000 until set) is one setting, changed on the page. Changing it changes every period,
+  past ones included.
+
 ## Notes
 
-- Pages follow the OS or browser dark-mode setting.
 - All SQL lives in the `Store` methods (`server/store.go`, `server/taps.go`, `server/data.go`, `server/auth.go`) and runs unchanged on SQLite
   and MySQL. A schema change goes in both `server/schema_sqlite.sql` and `server/schema_mysql.sql`.

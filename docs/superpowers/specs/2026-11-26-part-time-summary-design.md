@@ -1,6 +1,6 @@
 # Part-time summary: design
 
-Date: 2026-11-26. Status: proposed.
+Date: 2026-11-26. Status: built.
 
 ## Why
 
