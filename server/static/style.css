@@ -149,7 +149,9 @@ tfoot > * > * { border-top: 1px solid var(--border-strong); font-weight: 600; }
 .ptgrid thead th, .ptgrid thead th.name { text-align: center; }
 .ptgrid thead th.pt-month { border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
 .ptgrid td.off { background: var(--head); }
-.ptgrid td.none { color: var(--muted); }
+.ptgrid td.none { color: var(--muted); background: #f3f4f6; }
+.ptgrid td.hours { background: #e7f6ec; }
+.ptgrid td.miss { background: #fff7d6; }
 .pt { min-width: 34px; padding: 2px 6px; font-weight: 600; }
 .pt.miss { border-color: var(--late-line); background: var(--late-bg); color: var(--late); }
 .pt.open { color: var(--muted); }

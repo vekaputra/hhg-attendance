@@ -40,7 +40,7 @@
 {{range $ri, $row := .Rows}}<tr>
 <th scope="row" class="name">{{.Emp.Name}}<small>{{.Emp.ID}}</small></th>
 {{range $ci, $c := .Cells}}{{if not .Active}}<td class="off"></td>
-{{else}}{{with .Day}}{{$m := .Mark}}{{if or (eq $m "–") (eq $m "?") (eq $m "…")}}{{$id := printf "pt-%d-%d" $ri $ci}}<td{{if eq $m "–"}} class="none"{{end}}><button type="button" class="pt{{if eq $m "?"}} miss{{else if eq $m "…"}} open{{else}} add{{end}}" onclick="this.nextElementSibling.showModal()" title="{{.DetailText}}">{{$m}}</button><dialog id="{{$id}}" class="dlg"><form method="post" action="/part-time/corrections" class="card-body">
+{{else}}{{with .Day}}{{$m := .Mark}}{{if or (eq $m "–") (eq $m "?") (eq $m "…")}}{{$id := printf "pt-%d-%d" $ri $ci}}<td class="{{if eq $m "–"}}none{{else if eq $m "?"}}miss{{else}}open{{end}}"><button type="button" class="pt{{if eq $m "?"}} miss{{else if eq $m "…"}} open{{else}} add{{end}}" onclick="this.nextElementSibling.showModal()" title="{{.DetailText}}">{{$m}}</button><dialog id="{{$id}}" class="dlg"><form method="post" action="/part-time/corrections" class="card-body">
 <div class="pt-detail-text"><b>{{$row.Emp.Name}} · {{.Date.Format "2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div>
 {{if eq $.Reopen $id}}<p class="warn" role="alert">{{$.Error}}</p>{{end}}
 <input type="hidden" name="month" value="{{$.Month}}"><input type="hidden" name="emp" value="{{$row.Emp.ID}}"><input type="hidden" name="day" value="{{.Date.Format "2006-01-02"}}">
@@ -49,7 +49,7 @@
 <p class="note">A time before 03:00 is the next morning.</p>
 <div class="fields"><button type="submit" class="primary">Save</button><button type="button" onclick="this.closest('dialog').close()">Cancel</button></div>
 </form></dialog></td>
-{{else}}<td><button type="button" class="pt" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
+{{else}}<td class="hours"><button type="button" class="pt" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
 {{end}}{{end}}{{end}}{{end}}</tr>
 {{end}}</tbody>
 </table>
