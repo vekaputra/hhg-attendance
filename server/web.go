@@ -45,7 +45,7 @@ type server struct {
 
 // parseTemplates parses the embedded templates once at startup; a broken template is a bug, so it panics.
 func parseTemplates() map[string]*template.Template {
-	funcs := template.FuncMap{"hours": hours, "mins": mins, "clock": clock}
+	funcs := template.FuncMap{"hours": hours, "mins": mins, "clock": clock, "rupiah": rupiah}
 	files, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
 		panic(err)
@@ -82,6 +82,7 @@ func newServer(st *Store, loc *time.Location, now func() time.Time) http.Handler
 	pages.HandleFunc("GET /calendar", srv.calendar)
 	pages.HandleFunc("GET /person", srv.person)
 	pages.HandleFunc("GET /events", srv.events)
+	pages.HandleFunc("GET /part-time", srv.partTime)
 	pages.HandleFunc("POST /corrections", srv.correct)
 	pages.HandleFunc("POST /logout", logout)
 	srv.adminRoutes(pages)

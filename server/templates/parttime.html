@@ -1,0 +1,61 @@
+{{define "heading"}}Part-time summary{{end}}
+
+{{define "sub"}}{{.Title}} · pay period runs the 26th to the 25th{{end}}
+
+{{define "tools"}}
+<form method="get" action="/part-time">
+<label>Period <select name="month">{{range .Months}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+<button type="submit">Show</button>
+</form>
+{{end}}
+
+{{define "content"}}
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>
+{{end -}}
+{{if not .Rows}}<section class="card"><div class="card-body"><p>No part-time employees were active in this period.</p></div></section>
+{{else}}
+<section class="card">
+<div class="card-head"><h2>Summary</h2><span class="hint">Daily wage {{rupiah .Wage}} for 8 hours</span></div>
+<div class="scroll">
+<table class="data ptsum">
+<thead><tr><th scope="col" class="name">Employee</th><th scope="col">Days</th><th scope="col">Hours</th><th scope="col">Daily wage</th><th scope="col">Pay</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><th scope="row" class="name">{{.Emp.Name}}<small>{{.Emp.ID}}</small></th><td>{{.DaysWorked}}</td><td>{{.Hours}}{{if .Unsure}} <span class="unsure">+?</span>{{end}}</td><td>{{rupiah $.Wage}}</td><td>{{rupiah .Pay}}{{if .Unsure}} <span class="unsure">+?</span>{{end}}</td></tr>
+{{end}}</tbody>
+<tfoot><tr><th scope="row" class="name">Total</th><td>{{.Total.DaysWorked}}</td><td>{{.Total.Hours}}{{if .Total.Unsure}} <span class="unsure">+?</span>{{end}}</td><td></td><td>{{rupiah .Total.Pay}}{{if .Total.Unsure}} <span class="unsure">+?</span>{{end}}</td></tr></tfoot>
+</table>
+</div>
+{{if .Total.Unsure}}<p class="card-foot note"><span class="unsure">+?</span> some days are missing a check-in or check-out, so the pay is not final.</p>{{end}}
+</section>
+<section class="card">
+<div class="card-head"><h2>Daily hours</h2><span class="hint">Tap a day for its times</span></div>
+<div class="scroll">
+<table class="ptgrid">
+<thead><tr><th scope="col" class="name">Employee</th>{{range .Days}}<th scope="col"><small>{{.Format "Mon"}}</small>{{.Format "2 Jan"}}</th>{{end}}</tr></thead>
+<tbody>
+{{range $ri, $row := .Rows}}<tr>
+<th scope="row" class="name">{{.Emp.Name}}<small>{{.Emp.ID}}</small></th>
+{{range $ci, $c := .Cells}}{{if not .Active}}<td class="off"></td>
+{{else}}{{with .Day}}{{$m := .Mark}}{{if eq $m "–"}}<td class="none">–</td>
+{{else}}<td><button type="button" class="pt{{if eq $m "?"}} miss{{else if eq $m "…"}} open{{end}}" popovertarget="pt-{{$ri}}-{{$ci}}" title="{{.DetailText}}">{{$m}}</button><div popover id="pt-{{$ri}}-{{$ci}}" class="pt-detail"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div></td>
+{{end}}{{end}}{{end}}{{end}}</tr>
+{{end}}</tbody>
+</table>
+</div>
+<p class="card-foot note">Hours are worked time minus breaks, rounded up and capped at 8. – no taps · ? a check-in or check-out is missing · … the day is not over yet.</p>
+</section>
+<section class="card">
+<div class="card-head"><h2>Breaks</h2></div>
+{{if .Breaks}}<div class="scroll">
+<table class="data">
+<thead><tr><th scope="col">Employee</th><th scope="col">Day</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">Added by</th></tr></thead>
+<tbody>
+{{range .Breaks}}<tr><td>{{.Emp.ID}} {{.Emp.Name}}</td><td>{{.Day}}</td><td>{{.Start}}</td><td>{{.End}}</td><td>{{.By}}</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+{{else}}<div class="card-body"><p>No breaks recorded in this period.</p></div>
+{{end}}
+</section>
+{{end}}
+{{end}}

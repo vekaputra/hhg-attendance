@@ -220,7 +220,7 @@ func TestActiveNav(t *testing.T) {
 			t.Errorf("%s marks %q as the current page, want only %q", from, got, want)
 		}
 	}
-	for _, path := range []string{"/calendar", "/person", "/events", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
+	for _, path := range []string{"/calendar", "/person", "/events", "/part-time", "/roster", "/employees", "/orgs", "/leave", "/holidays"} {
 		check("GET "+path, getWithCookies(h, path, session), path)
 	}
 	check("rejected POST /corrections", postCorrection(h, session, "NOPE", "2026-10-07", "", "20:00"), "/person")

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -82,4 +83,22 @@ func (s *Store) SetPartTimeWage(wage int64) error {
 		_, err = s.db.Exec(`UPDATE settings SET value = ? WHERE name = 'part_time_wage'`, v)
 	}
 	return err
+}
+
+// EarliestTap returns the earliest tap of any of the employees, or false when they have none.
+func (s *Store) EarliestTap(employeeIDs []string) (time.Time, bool, error) {
+	if len(employeeIDs) == 0 {
+		return time.Time{}, false, nil
+	}
+	args := make([]any, len(employeeIDs))
+	for i, id := range employeeIDs {
+		args[i] = id
+	}
+	var v sql.NullString
+	err := s.db.QueryRow(`SELECT MIN(device_time) FROM taps WHERE employee_id IN (?`+strings.Repeat(", ?", len(args)-1)+`)`, args...).Scan(&v)
+	if err != nil || !v.Valid {
+		return time.Time{}, false, err
+	}
+	t, err := time.ParseInLocation(stampFmt, v.String, s.loc)
+	return t, err == nil, err
 }
