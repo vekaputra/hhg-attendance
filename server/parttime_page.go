@@ -69,6 +69,9 @@ type breakRow struct {
 }
 
 // Mark is what the grid cell shows.
+// Revised reports a day changed by hand: a manager correction or a break.
+func (d ptDay) Revised() bool { return d.Edited || d.Break > 0 }
+
 func (d ptDay) Mark() string {
 	switch d.State {
 	case ptHours:

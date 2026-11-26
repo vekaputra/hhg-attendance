@@ -152,6 +152,7 @@ tfoot > * > * { border-top: 1px solid var(--border-strong); font-weight: 600; }
 .ptgrid td.none { color: var(--muted); }
 .pt { min-width: 34px; padding: 2px 6px; font-weight: 600; }
 .pt.hrs { border-color: #bfe3cb; background: #e7f6ec; }
+.pt.hrs.rev { border-color: #b9d7f2; background: #e6f1fb; }
 .pt.miss { border-color: #f1dc8a; background: #fff7d6; color: var(--late); }
 .pt.open { color: var(--muted); }
 .pt.add { border-color: #e5e7eb; background: #f3f4f6; color: var(--muted); font-weight: 400; }

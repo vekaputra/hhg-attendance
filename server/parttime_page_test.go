@@ -260,6 +260,27 @@ func TestPartTimeFillAfterMidnight(t *testing.T) {
 	}
 }
 
+// Days changed by hand, a break or a manager correction, are marked so they stand out from plain tap days.
+func TestPartTimeRevisedDaysMarked(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT2", "day", "2026-11-12", "out", "16:00", "out0", "15:00")
+	page := getPartTime(t, h, session, "")
+	for id, want := range map[string]bool{
+		"pt-0-0":  true,  // PT1 26 Oct has a break
+		"pt-0-1":  false, // PT1 27 Oct, taps only
+		"pt-1-17": true,  // PT2 12 Nov, manager correction
+	} {
+		before, _, ok := strings.Cut(page, `popovertarget="`+id+`"`)
+		if !ok {
+			t.Fatalf("no button for %s", id)
+		}
+		tag := before[strings.LastIndex(before, "<button"):]
+		if got := strings.Contains(tag, " rev"); got != want {
+			t.Errorf("%s revised = %v, want %v (%s)", id, got, want, tag)
+		}
+	}
+}
+
 // A day with no taps (–) opens the same form, so both times can be added from the grid.
 func TestPartTimeAddTimesToEmptyDay(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
