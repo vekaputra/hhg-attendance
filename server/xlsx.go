@@ -68,13 +68,13 @@ func writeXLSX(w io.Writer, sheets []xlsxSheet) error {
 				switch v := v.(type) {
 				case nil:
 				case string:
-					fmt.Fprintf(&sb, `<c r="%s" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>`, ref, xlsxEscape(v))
+					if v != "" { // blank stays a truly empty cell
+						fmt.Fprintf(&sb, `<c r="%s" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>`, ref, xlsxEscape(v))
+					}
 				case int:
 					fmt.Fprintf(&sb, `<c r="%s"><v>%d</v></c>`, ref, v)
 				case int64:
 					fmt.Fprintf(&sb, `<c r="%s"><v>%d</v></c>`, ref, v)
-				case float64:
-					fmt.Fprintf(&sb, `<c r="%s"><v>%s</v></c>`, ref, strconv.FormatFloat(v, 'f', -1, 64))
 				default:
 					return fmt.Errorf("xlsx: unsupported cell type %T at %s in %q", v, ref, sh.Name)
 				}

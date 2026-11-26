@@ -260,6 +260,8 @@ func detailRow(day time.Time, e Employee, d ptDay) []any {
 		notes = append(notes, "manager edit")
 	}
 	switch {
+	case d.State == ptMissing && !d.In.IsZero() && !d.Out.IsZero():
+		notes = append(notes, "check-out before check-in")
 	case d.State == ptMissing && d.In.IsZero():
 		notes = append(notes, "missing check-in")
 	case d.State == ptMissing:

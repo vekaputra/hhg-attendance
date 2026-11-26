@@ -24,7 +24,7 @@ func TestWriteXLSX(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	err := writeXLSX(&buf, []xlsxSheet{
-		{Name: "Check-in & out", Rows: [][]any{{"ID", "Name"}, {"P1", "B&B <x>"}, {nil, int64(97500)}}},
+		{Name: "Check-in & out", Rows: [][]any{{"ID", "Name"}, {"P1", "B&B <x>"}, {nil, int64(97500), ""}}},
 		{Name: "Wide", Rows: [][]any{wide}},
 	})
 	if err != nil {
@@ -65,8 +65,10 @@ func TestWriteXLSX(t *testing.T) {
 			t.Errorf("sheet1 missing %q: %s", want, s1)
 		}
 	}
-	if strings.Contains(s1, `r="A3"`) {
-		t.Errorf("nil cell A3 should not be written: %s", s1)
+	for _, ref := range []string{`r="A3"`, `r="C3"`} {
+		if strings.Contains(s1, ref) {
+			t.Errorf("nil or empty-string cell %s should not be written: %s", ref, s1)
+		}
 	}
 	if !strings.Contains(parts["xl/worksheets/sheet2.xml"], `r="AD1"`) {
 		t.Error("sheet2 missing AD1")

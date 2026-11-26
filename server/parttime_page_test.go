@@ -489,6 +489,15 @@ func TestPartTimeWorkbookWholeDayBreak(t *testing.T) {
 	}
 }
 
+func TestPartTimeWorkbookCheckOutBeforeCheckIn(t *testing.T) {
+	day := date("2026-11-02")
+	p := partTimePage{Days: []time.Time{day}, Rows: []ptRow{{Emp: Employee{ID: "PT1"}, Cells: []ptCell{{Active: true,
+		Day: ptDay{Date: day, State: ptMissing, In: at("2026-11-02 17:00:00"), Out: at("2026-11-02 09:00:00")}}}}}}
+	if note := partTimeWorkbook(p)[2].Rows[1][10]; note != "check-out before check-in" {
+		t.Errorf("note = %q, want %q", note, "check-out before check-in")
+	}
+}
+
 func TestPartTimePageExportLink(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
 	if page := getPartTime(t, h, session, "?month=2026-11"); !strings.Contains(page, `href="/part-time/export?month=2026-11"`) {
