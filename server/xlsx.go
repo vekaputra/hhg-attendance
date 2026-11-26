@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-// xlsxSheet is one worksheet: Rows[r][c] is a string (inline text), an int/int64/float64 (number), or nil (empty).
+// xlsxSheet is one worksheet: Rows[r][c] is a string (inline text; "" is left blank), an int/int64 (number), or nil (empty).
 type xlsxSheet struct {
 	Name string
 	Rows [][]any
