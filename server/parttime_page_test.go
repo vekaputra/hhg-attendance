@@ -495,3 +495,18 @@ func TestPartTimePageExportLink(t *testing.T) {
 		t.Error("page has no Export link")
 	}
 }
+
+func TestPartTimeWorkbookLeadingAndTrailingBreak(t *testing.T) {
+	day := date("2026-11-02")
+	ses := func(a, b string) session { return session{at("2026-11-02 " + a), at("2026-11-02 " + b)} }
+	cell := func(d ptDay) ptCell { d.Date, d.State = day, ptHours; return ptCell{Active: true, Day: d} }
+	p := partTimePage{Days: []time.Time{day, day}, Rows: []ptRow{{Emp: Employee{ID: "PT1"}, Cells: []ptCell{
+		cell(ptDay{In: at("2026-11-02 09:00:00"), Out: at("2026-11-02 17:00:00"), Break: time.Hour, Sessions: []session{ses("10:00:00", "17:00:00")}}),
+		cell(ptDay{In: at("2026-11-02 09:00:00"), Out: at("2026-11-02 17:00:00"), Break: 2 * time.Hour,
+			Sessions: []session{ses("09:00:00", "12:00:00"), ses("13:00:00", "16:00:00")}}),
+	}}}}
+	rows := partTimeWorkbook(p)[2].Rows
+	if rows[1][5] != "09:00–10:00" || rows[2][5] != "12:00–13:00, 16:00–17:00" {
+		t.Errorf("Breaks = %q, %q", rows[1][5], rows[2][5])
+	}
+}

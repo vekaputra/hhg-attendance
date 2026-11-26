@@ -230,12 +230,21 @@ func detailRow(day time.Time, e Employee, d ptDay) []any {
 		}
 		return clock(t)
 	}
+	// Breaks are what the sessions leave of [In, Out]: before the first, between them, after the last.
 	var breaks []string
-	for i := 1; i < len(d.Sessions); i++ {
-		breaks = append(breaks, clock(d.Sessions[i-1].End)+"–"+clock(d.Sessions[i].Start))
+	gap := func(from, to time.Time) {
+		if to.After(from) {
+			breaks = append(breaks, clock(from)+"–"+clock(to))
+		}
 	}
-	if len(d.Sessions) == 0 && d.Break > 0 { // the breaks cover the whole day
-		breaks = append(breaks, clock(d.In)+"–"+clock(d.Out))
+	if d.State == ptHours && len(d.Sessions) == 0 {
+		gap(d.In, d.Out)
+	} else if len(d.Sessions) > 0 {
+		gap(d.In, d.Sessions[0].Start)
+		for i := 1; i < len(d.Sessions); i++ {
+			gap(d.Sessions[i-1].End, d.Sessions[i].Start)
+		}
+		gap(d.Sessions[len(d.Sessions)-1].End, d.Out)
 	}
 	breakTime := ""
 	if d.Break > 0 {
