@@ -31,7 +31,7 @@ type ptState int
 const (
 	ptNone    ptState = iota // – no in and no out
 	ptHours                  // both in and out
-	ptMissing                // ? one side missing and the day is over
+	ptMissing                // ? one side missing and the day is over, or check-out not after check-in
 	ptOpen                   // … one side missing and the day is still running
 )
 
@@ -61,6 +61,8 @@ func partTimeDay(r Result, breaks []Break, wage int64) ptDay {
 		if slices.Contains(r.Flags, FlagNoCheckIn) || slices.Contains(r.Flags, FlagNoCheckOut) {
 			d.State = ptMissing
 		}
+	case !r.Out.After(r.In): // both known but unusable, so one of them needs fixing
+		d.State = ptMissing
 	default:
 		d.State = ptHours
 	}

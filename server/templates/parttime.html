@@ -44,6 +44,7 @@
 <div class="pt-detail-text"><b>{{$row.Emp.Name}} · {{.Date.Format "Mon 2 Jan"}}</b>{{range .Detail}}<span>{{.}}</span>{{end}}</div>
 {{if eq $.Reopen $id}}<p class="warn" role="alert">{{$.Error}}</p>{{end}}
 <input type="hidden" name="month" value="{{$.Month}}"><input type="hidden" name="emp" value="{{$row.Emp.ID}}"><input type="hidden" name="day" value="{{.Date.Format "2006-01-02"}}">
+<input type="hidden" name="in0" value="{{if not .In.IsZero}}{{clock .In}}{{end}}"><input type="hidden" name="out0" value="{{if not .Out.IsZero}}{{clock .Out}}{{end}}">
 <div class="fields"><label>Check-in <input type="time" name="in" value="{{$c.In}}"></label><label>Check-out <input type="time" name="out" value="{{$c.Out}}"></label></div>
 <p class="note">A time before 03:00 is the next morning.</p>
 <div class="fields"><button type="submit" class="primary">Save</button><button type="button" onclick="this.closest('dialog').close()">Cancel</button></div>

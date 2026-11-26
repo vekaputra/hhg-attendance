@@ -186,7 +186,15 @@ func (srv *server) partTimeCorrect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emp, day, in, out := r.PostFormValue("emp"), r.PostFormValue("day"), r.PostFormValue("in"), r.PostFormValue("out")
-	_, msg, err := srv.applyCorrection(emps, emp, day, in, out, currentUser(r))
+	// The dialog pre-fills the known times to the minute; resubmitting one unchanged must not overwrite it.
+	fixIn, fixOut := in, out
+	if in == r.PostFormValue("in0") {
+		fixIn = ""
+	}
+	if out == r.PostFormValue("out0") {
+		fixOut = ""
+	}
+	_, msg, err := srv.applyCorrection(emps, emp, day, fixIn, fixOut, currentUser(r))
 	if err != nil {
 		serverError(w, "correction", err)
 		return
@@ -216,13 +224,13 @@ func (srv *server) partTimeAddBreak(w http.ResponseWriter, r *http.Request) {
 	}
 	f := breakForm{r.PostFormValue("emp"), r.PostFormValue("start_date"), r.PostFormValue("start_time"),
 		r.PostFormValue("end_date"), r.PostFormValue("end_time")}
-	msg, err := srv.addBreak(f, currentUser(r))
+	day, msg, err := srv.addBreak(f, currentUser(r))
 	if err != nil {
 		serverError(w, "add break", err)
 		return
 	}
-	if msg == "" {
-		http.Redirect(w, r, "/part-time?month="+month.Format(monthFmt), http.StatusSeeOther)
+	if msg == "" { // the break's own period, which may not be the one shown
+		http.Redirect(w, r, "/part-time?month="+payMonthOf(day).Format(monthFmt), http.StatusSeeOther)
 		return
 	}
 	srv.partTimeReject(w, r, month, msg, func(p *partTimePage) string {
@@ -234,40 +242,41 @@ func (srv *server) partTimeAddBreak(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// addBreak validates and saves a break. msg is a user-facing rejection and nothing was saved; err is a server error.
-func (srv *server) addBreak(f breakForm, by string) (msg string, err error) {
+// addBreak validates and saves a break, returning the attendance day it belongs to. msg is a user-facing rejection
+// and nothing was saved; err is a server error.
+func (srv *server) addBreak(f breakForm, by string) (day time.Time, msg string, err error) {
 	emps, err := srv.st.Employees(0)
 	if err != nil {
-		return "", err
+		return day, "", err
 	}
 	i := slices.IndexFunc(emps, func(e Employee) bool { return e.ID == f.Emp })
 	if i < 0 {
-		return "unknown employee", nil
+		return day, "unknown employee", nil
 	}
 	emp := emps[i]
 	if !emp.PartTime {
-		return "breaks are only for part-time employees", nil
+		return day, "breaks are only for part-time employees", nil
 	}
 	start, err := time.ParseInLocation(dateFmt+" "+clockFmt, f.StartDate+" "+f.StartTime, srv.loc)
 	if err != nil {
-		return "bad break start", nil
+		return day, "bad break start", nil
 	}
 	end, err := time.ParseInLocation(dateFmt+" "+clockFmt, f.EndDate+" "+f.EndTime, srv.loc)
 	if err != nil {
-		return "bad break end", nil
+		return day, "bad break end", nil
 	}
 	if !end.After(start) {
-		return "break must end after it starts", nil
+		return day, "break must end after it starts", nil
 	}
-	day := attendanceDate(start)
+	day = attendanceDate(start)
 	if end.After(time.Date(day.Year(), day.Month(), day.Day()+1, dayStartHour, 0, 0, 0, srv.loc)) {
-		return "a break must end by 03:00 the next morning", nil
+		return day, "a break must end by 03:00 the next morning", nil
 	}
 	if ds := day.Format(dateFmt); ds < emp.ActiveFrom || (emp.ActiveUntil != "" && ds > emp.ActiveUntil) {
-		return "employee was not active that day", nil
+		return day, "employee was not active that day", nil
 	}
 	_, err = srv.st.AddBreak(Break{EmployeeID: emp.ID, Day: day, Start: start, End: end, By: by, At: srv.now()})
-	return "", err
+	return day, "", err
 }
 
 func (srv *server) partTimeDeleteBreak(w http.ResponseWriter, r *http.Request) {
@@ -322,8 +331,8 @@ func (srv *server) partTimeData(r *http.Request, month, today time.Time) (partTi
 			ptIDs = append(ptIDs, e.ID)
 		}
 	}
-	// The dropdown runs from the earliest part-timer tap's period through the one containing today,
-	// always including the default and the shown period.
+	// The dropdown runs from the earliest part-timer tap's period through the one containing today, always including
+	// the default. A shown period outside that is added on its own, so an odd ?month= can't widen the range.
 	from, to := defaultPayMonth(today), payMonthOf(today)
 	earliest, ok, err := srv.st.EarliestTap(ptIDs)
 	if err != nil {
@@ -332,14 +341,17 @@ func (srv *server) partTimeData(r *http.Request, month, today time.Time) (partTi
 	if e := payMonthOf(attendanceDate(earliest)); ok && e.Before(from) {
 		from = e
 	}
-	if month.Before(from) {
-		from = month
+	option := func(m time.Time) monthOption {
+		return monthOption{m.Format(monthFmt), m.Format("January 2006"), m.Equal(month)}
 	}
-	if month.After(to) {
-		to = month
+	if month.Before(from) {
+		page.Months = append(page.Months, option(month))
 	}
 	for m := from; !m.After(to); m = m.AddDate(0, 1, 0) {
-		page.Months = append(page.Months, monthOption{m.Format(monthFmt), m.Format("January 2006"), m.Equal(month)})
+		page.Months = append(page.Months, option(m))
+	}
+	if month.After(to) {
+		page.Months = append(page.Months, option(month))
 	}
 
 	if page.Wage, err = srv.st.PartTimeWage(); err != nil {

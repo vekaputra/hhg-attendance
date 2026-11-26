@@ -143,6 +143,16 @@ func TestPartTimePageDefaults(t *testing.T) {
 func TestPartTimePageMonthParam(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
 	wantAll(t, getPartTime(t, h, session, "?month=2026-12"), "26 Nov – 25 Dec 2026", `<option value="2026-12" selected>December 2026</option>`)
+	// A month far outside the normal October–December range adds just itself.
+	for _, c := range []struct{ month, first string }{{"2001-01", "2001-01"}, {"2099-12", "2026-10"}} {
+		page := getPartTime(t, h, session, "?month="+c.month)
+		_, sel, _ := strings.Cut(page, `<select name="month"`)
+		sel, _, _ = strings.Cut(sel, "</select>")
+		if n := strings.Count(sel, "<option "); n != 4 || !strings.Contains(sel, `<option value="`+c.month+`" selected>`) ||
+			!strings.HasPrefix(sel[strings.Index(sel, "<option "):], `<option value="`+c.first+`"`) {
+			t.Errorf("?month=%s dropdown has %d options, want 4 from %s with %s selected", c.month, n, c.first, c.month)
+		}
+	}
 	if w := getWithCookies(h, "/part-time?month=bad", session); w.Code != http.StatusBadRequest {
 		t.Errorf("GET /part-time?month=bad = %d, want 400", w.Code)
 	}
@@ -200,6 +210,24 @@ func TestPartTimeFillMissing(t *testing.T) {
 	wantAll(t, getWithCookies(h, "/person?emp=PT1&month=2026-10", session).Body.String(), "manager edit")
 }
 
+// Filling only the missing check-out leaves the known check-in alone, seconds and all.
+func TestPartTimeFillKeepsKnownTime(t *testing.T) {
+	h, session, st, _ := partTimeFixture(t)
+	if err := st.InsertTap(Tap{EmployeeID: "PT1", Time: at("2026-11-02 09:05:20"), DeviceID: "d", SerialNo: "x"}, at("2026-11-27 10:00:00")); err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, getPartTime(t, h, session, ""), `name="in0" value="09:05"`)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-11-02",
+		"in", "09:05", "in0", "09:05", "out", "17:00", "out0", "")
+	day := date("2026-11-02")
+	if got := mustGet(st.Report(0, "PT1", day, day, at("2026-11-27 10:00:00")))[0].Days[0]; !got.In.Equal(at("2026-11-02 09:05:20")) {
+		t.Errorf("check-in = %v, want the tap's 09:05:20", got.In)
+	}
+	if fix := mustGet(st.Corrections("PT1", day, day))["2026-11-02"]; !fix.In.IsZero() || !fix.Out.Equal(at("2026-11-02 17:00:00")) {
+		t.Errorf("correction = %+v, want only check-out 17:00", fix)
+	}
+}
+
 func TestPartTimeFillAfterMidnight(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
 	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-29", "in", "18:00", "out", "00:30")
@@ -254,6 +282,16 @@ func TestPartTimeAddBreak(t *testing.T) {
 		t.Errorf("overnight break = %v, want one on 12 Nov", b)
 	}
 	wantAll(t, getPartTime(t, h, session, ""), "Thu 12 Nov", "00:30 (&#43;1)") // html/template escapes +
+}
+
+// A break in another period redirects to that period, where it shows.
+func TestPartTimeAddBreakOtherPeriod(t *testing.T) {
+	h, session, _, _ := partTimeFixture(t)
+	w := postForm(h, "/part-time/breaks", formOf("month", "2026-11", "emp", "PT1", "start_date", "2026-11-26",
+		"start_time", "10:00", "end_date", "2026-11-26", "end_time", "12:00"), session)
+	if w.Code != 303 || w.Header().Get("Location") != "/part-time?month=2026-12" {
+		t.Errorf("POST = %d to %q, want 303 to the December period", w.Code, w.Header().Get("Location"))
+	}
 }
 
 func TestPartTimeBreakRejects(t *testing.T) {
