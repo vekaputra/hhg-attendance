@@ -194,6 +194,11 @@ func (srv *server) partTimeCorrect(w http.ResponseWriter, r *http.Request) {
 	if out == r.PostFormValue("out0") {
 		fixOut = ""
 	}
+	// Nothing changed: applyCorrection reads two empty fields as "remove the correction", which would drop a manager edit.
+	if fixIn == "" && fixOut == "" {
+		http.Redirect(w, r, "/part-time?month="+month.Format(monthFmt), http.StatusSeeOther)
+		return
+	}
 	_, msg, err := srv.applyCorrection(emps, emp, day, fixIn, fixOut, currentUser(r))
 	if err != nil {
 		serverError(w, "correction", err)

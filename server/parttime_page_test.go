@@ -228,6 +228,18 @@ func TestPartTimeFillKeepsKnownTime(t *testing.T) {
 	}
 }
 
+// Saving the dialog without changing anything must not delete the day's existing correction.
+func TestPartTimeFillUnchangedKeepsCorrection(t *testing.T) {
+	h, session, st, _ := partTimeFixture(t)
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-28", "in", "08:30")
+	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-28",
+		"in", "08:30", "in0", "08:30", "out", "", "out0", "")
+	day := date("2026-10-28")
+	if fix := mustGet(st.Corrections("PT1", day, day))["2026-10-28"]; !fix.In.Equal(at("2026-10-28 08:30:00")) {
+		t.Errorf("correction = %+v, want the check-in 08:30 kept", fix)
+	}
+}
+
 func TestPartTimeFillAfterMidnight(t *testing.T) {
 	h, session, _, _ := partTimeFixture(t)
 	postPartTime(t, h, session, "/part-time/corrections", "emp", "PT1", "day", "2026-10-29", "in", "18:00", "out", "00:30")
