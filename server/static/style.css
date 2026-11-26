@@ -149,13 +149,12 @@ tfoot > * > * { border-top: 1px solid var(--border-strong); font-weight: 600; }
 .ptgrid thead th, .ptgrid thead th.name { text-align: center; }
 .ptgrid thead th.pt-month { border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
 .ptgrid td.off { background: var(--head); }
-.ptgrid td.none { color: var(--muted); background: #f3f4f6; }
-.ptgrid td.hours { background: #e7f6ec; }
-.ptgrid td.miss { background: #fff7d6; }
+.ptgrid td.none { color: var(--muted); }
 .pt { min-width: 34px; padding: 2px 6px; font-weight: 600; }
-.pt.miss { border-color: var(--late-line); background: var(--late-bg); color: var(--late); }
+.pt.hrs { border-color: #bfe3cb; background: #e7f6ec; }
+.pt.miss { border-color: #f1dc8a; background: #fff7d6; color: var(--late); }
 .pt.open { color: var(--muted); }
-.pt.add { border-color: transparent; background: none; color: var(--muted); font-weight: 400; }
+.pt.add { border-color: #e5e7eb; background: #f3f4f6; color: var(--muted); font-weight: 400; }
 .pt.add:hover { border-color: var(--border-strong); }
 .pt-detail { width: min(300px, calc(100vw - 32px)); padding: 12px 14px; text-align: left; white-space: normal; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: 0 8px 24px rgb(0 0 0 / .15); }
 .pt-detail span, .pt-detail b { display: block; }
